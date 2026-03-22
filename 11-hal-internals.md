@@ -57,13 +57,31 @@ The build system defines exactly one `PLATFORM_*` macro per target. The HAL uses
 
 ### Rationale
 
-Three generation macros cover 95% of the branching:
+Seven derived macros cover the branching. The generation macros are NOT mutually exclusive — a SoC may have multiple macros active:
 
-- **`HAL_OLD_SDK`**: T20, T21, T23, T30 -- old encoder struct names, per-codec RC unions, packs with direct `virAddr`.
-- **`HAL_NEW_SDK`**: T31, T32, T40, T41 -- new encoder struct names (or hybrid on T32), unified RC, packs with `offset` into ring buffer, `SetDefaultParam`, `gopAttr`.
-- **`HAL_IMPVI_SDK`**: T40, T41 -- ISP tuning functions gain `IMPVI_NUM` as first parameter and all scalar args become pointers.
+| Macro | SoCs | What it means |
+|-------|------|---------------|
+| `HAL_OLD_SDK` | T20, T21, T23, T30 | Old encoder structs (`IMPEncoderCHNAttr`), per-codec RC unions (`attrH264Cbr`), packs with direct `virAddr`, old RC mode enums (`ENC_RC_MODE_*`) |
+| `HAL_NEW_SDK` | T31, T32, T40, T41 | Has `SetDefaultParam()`, `IMPEncoderProfile` enum. **But T32 is a hybrid** — it uses old struct names, old RC enum names, old pack access, no `gopAttr`. Always check `PLATFORM_T32` explicitly. |
+| `HAL_IMPVI_SDK` | T40, T41 | ISP tuning functions take `IMPVI_NUM` as first parameter, all args become pointers |
+| `HAL_HYBRID_SDK` | T32 only | New SDK `SetDefaultParam`, but old RC enum names (`ENC_RC_MODE_*` not `IMP_ENC_RC_MODE_*`), old pack access (direct `virAddr`), no `gopAttr`, old struct name `IMPEncoderCHNAttr` |
+| `HAL_ISP_PTR_ARGS` | T32, T40, T41 | ISP tuning setters take pointer args (`unsigned char *bright`) not scalars |
+| `HAL_EXTENDED_OSD` | T23, T32, T40, T41 | OSD enum values shifted (BITMAP=5 not 3, COVER=6 not 4, PIC=7 not 5) |
+| `HAL_MULTI_SENSOR` | T32, T40, T41 | `IMP_ISP_AddSensor(IMPVI_NUM, ...)`, extended `IMPSensorInfo` with `sensor_id`, `video_interface`, `mclk` |
 
-T32 straddles the boundary (new encoder internals, old type names), so `HAL_HYBRID_SDK` captures that. T23 straddles the ISP boundary (has `_Sec` suffix functions for dual-sensor, not `IMPVI_NUM`). Individual `PLATFORM_*` guards are still needed for corner cases.
+**Key nuance: T32 is the hardest SoC to handle.** It has `HAL_NEW_SDK` set (for `SetDefaultParam`), but its encoder and pack access behave like old SDK. The code uses `!defined(PLATFORM_T32)` guards extensively within `HAL_NEW_SDK` blocks. When adding new encoder code, always test T32 separately.
+
+Per-SoC macro matrix:
+
+| Macro | T20 | T21 | T23 | T30 | T31 | T32 | T40 | T41 |
+|-------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `HAL_OLD_SDK` | Y | Y | Y | Y | | | | |
+| `HAL_NEW_SDK` | | | | | Y | Y | Y | Y |
+| `HAL_IMPVI_SDK` | | | | | | | Y | Y |
+| `HAL_HYBRID_SDK` | | | | | | Y | | |
+| `HAL_ISP_PTR_ARGS` | | | | | | Y | Y | Y |
+| `HAL_EXTENDED_OSD` | | | Y | | | Y | Y | Y |
+| `HAL_MULTI_SENSOR` | | | | | | Y | Y | Y |
 
 ---
 
