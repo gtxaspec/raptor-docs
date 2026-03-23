@@ -32,13 +32,11 @@ raptor/
 │   ├── librss_ipc/
 │   │   ├── CMakeLists.txt          # librss_ipc (shared or static)
 │   │   ├── include/
-│   │   │   ├── rss_frame_ring.h    # SHM ring buffer API
-│   │   │   ├── rss_osd_shm.h       # OSD double-buffer API
-│   │   │   └── rss_control.h       # Unix socket control protocol
+│   │   │   └── rss_ipc.h            # SHM ring buffer + OSD + control API
 │   │   └── src/
-│   │       ├── frame_ring.c
-│   │       ├── osd_shm.c
-│   │       └── control.c
+│   │       ├── rss_ring.c
+│   │       ├── rss_osd_shm.c
+│   │       └── rss_ctrl.c
 │   └── librss_common/
 │       ├── CMakeLists.txt          # librss_common (static)
 │       ├── include/

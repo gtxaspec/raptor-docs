@@ -289,6 +289,14 @@ typedef struct {
         int     w, h;
     } fcrop;
 
+    /* ISP scaler (for sub-streams at different resolution than sensor).
+     * When enabled, the ISP downscales the sensor output before encoding. */
+    struct {
+        bool    enable;
+        int     out_width;
+        int     out_height;
+    } scaler;
+
     /* Number of video buffer blocks; 0 = SDK default (typically 2-4) */
     int             nr_vbs;
 

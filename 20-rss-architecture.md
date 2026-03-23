@@ -160,7 +160,7 @@ These daemons control hardware peripherals and do not process frame data.
 
 ## 2. IPC Primitives
 
-### 2.1 SHM Ring Buffer (`rss_frame_ring`)
+### 2.1 SHM Ring Buffer (`rss_ipc.h`)
 
 The primary data transport between producers and consumers. Lock-free,
 single-producer multi-consumer, designed for zero-copy frame passing.
@@ -169,7 +169,7 @@ single-producer multi-consumer, designed for zero-copy frame passing.
 
 ```c
 /*
- * rss_frame_ring.h -- SHM ring buffer for encoded frames.
+ * rss_ipc.h -- SHM ring buffer for encoded frames.
  *
  * Memory layout (single contiguous mmap):
  *
@@ -197,17 +197,21 @@ typedef struct {
     /* Data region allocator (producer only) */
     _Atomic uint32_t  data_head;        /* next write offset in data region */
 
-    /* Stream metadata (set once at init) */
+    /* Stream metadata (set once at init via rss_ring_set_stream_info) */
     uint32_t          stream_id;        /* 0=main, 1=sub, 2=jpeg, 0x10=audio */
     uint32_t          codec;            /* rss_codec_t value */
     uint32_t          width;            /* video width (0 for audio) */
     uint32_t          height;           /* video height (0 for audio) */
     uint32_t          fps_num;
     uint32_t          fps_den;
+    uint8_t           profile;          /* H.264 profile_idc (66=Base,77=Main,100=High) */
+    uint8_t           level;            /* H.264 level_idc (30,31,40,51...) */
+    uint16_t          _reserved;
 
     /* Magic + version for consumer validation */
     uint32_t          magic;            /* RSS_RING_MAGIC */
     uint32_t          version;          /* RSS_RING_VERSION */
+    char              pad[0] __attribute__((aligned(64))); /* cache-line align */
 } rss_ring_header_t;
 
 #define RSS_RING_MAGIC    0x52535352   /* "RSSR" */
@@ -235,12 +239,23 @@ typedef struct {
  *   slot_count: number of slots (must be power of 2, typically 16-32)
  *   data_size:  data region size in bytes (typically 2-4MB for video)
  *
- * rss_ring_publish(): publish a frame to the ring.
- *   The producer copies frame data into the data region at data_head,
- *   fills the slot metadata, then atomically increments write_seq.
- *   If the data region wraps, the oldest data is overwritten (consumers
- *   detect this via sequence gap).
+ * rss_ring_publish(): publish a single contiguous buffer to the ring.
+ *
+ * rss_ring_publish_iov(): scatter-gather publish -- writes multiple
+ *   buffers contiguously into the ring in one operation. Used by RVD
+ *   to publish SDK NAL units directly without an intermediate copy.
+ *
+ * rss_ring_set_stream_info(): set stream metadata in the ring header
+ *   (codec, resolution, fps, H.264 profile/level). Called once after
+ *   ring creation. Consumers read this via rss_ring_get_header().
  */
+
+/* Scatter-gather I/O vector */
+typedef struct {
+    const uint8_t *data;
+    uint32_t       length;
+} rss_iov_t;
+
 rss_ring_t *rss_ring_create(const char *name, uint32_t slot_count,
                              uint32_t data_size);
 void         rss_ring_destroy(rss_ring_t *ring);
@@ -249,6 +264,17 @@ int          rss_ring_publish(rss_ring_t *ring,
                               const uint8_t *data, uint32_t length,
                               int64_t timestamp, uint16_t nal_type,
                               uint8_t is_key);
+
+int          rss_ring_publish_iov(rss_ring_t *ring,
+                                   const rss_iov_t *iov, uint32_t iov_count,
+                                   int64_t timestamp, uint16_t nal_type,
+                                   uint8_t is_key);
+
+void         rss_ring_set_stream_info(rss_ring_t *ring,
+                                       uint32_t stream_id, uint32_t codec,
+                                       uint32_t width, uint32_t height,
+                                       uint32_t fps_num, uint32_t fps_den,
+                                       uint8_t profile, uint8_t level);
 ```
 
 #### Consumer API
@@ -273,8 +299,12 @@ int          rss_ring_publish(rss_ring_t *ring,
  *   overwrites that region. For slow consumers, copy the data.
  *
  * rss_ring_wait(): block until a new frame is available.
- *   Uses eventfd notification from the producer. The producer
- *   writes to the eventfd after each publish.
+ *   Uses futex on write_seq in shared memory. The producer calls
+ *   FUTEX_WAKE after each publish, waking all blocked consumers
+ *   instantly (~microseconds, vs 1-10ms with the old polling approach).
+ *
+ * rss_ring_get_header(): read-only access to ring metadata (codec,
+ *   resolution, fps, profile/level). Used by RSD for SDP generation.
  */
 rss_ring_t *rss_ring_open(const char *name);
 void         rss_ring_close(rss_ring_t *ring);
@@ -284,6 +314,8 @@ int          rss_ring_read(rss_ring_t *ring, uint64_t *read_seq,
                            rss_ring_slot_t *meta);
 
 int          rss_ring_wait(rss_ring_t *ring, uint32_t timeout_ms);
+
+const rss_ring_header_t *rss_ring_get_header(rss_ring_t *ring);
 ```
 
 #### Zero-Copy Frame Passing
@@ -321,7 +353,7 @@ One double-buffer per OSD region per stream channel.
 
 ```c
 /*
- * rss_osd_shm.h -- double-buffered OSD bitmap transport.
+ * rss_ipc.h -- double-buffered OSD bitmap transport.
  *
  * SHM name: /rss_osd_<stream>_<region>  (e.g. /rss_osd_0_ts)
  */
@@ -536,7 +568,7 @@ implementation uses `IMPVI_NUM` to route to the correct ISP pipeline).
    - Starts encoder receive
    - Creates SHM rings (main, sub)
    - Creates control socket
-   - Enters frame loop: enc_poll -> enc_get_frame -> ring_publish -> enc_release_frame
+   - Enters frame loop: enc_poll -> enc_get_frame -> ring_publish_iov -> enc_release_frame
 
 2. RAD starts (optional, independent of RVD)
    - Opens HAL context (shares the HAL -- audio subsystem is independent)
