@@ -318,12 +318,18 @@ int          rss_ring_wait(rss_ring_t *ring, uint32_t timeout_ms);
 const rss_ring_header_t *rss_ring_get_header(rss_ring_t *ring);
 ```
 
-#### Zero-Copy Frame Passing
+#### Frame Passing
 
 The data region is a circular byte buffer. The producer writes frame
-payloads sequentially, wrapping around when the end is reached. Consumers
-read directly from the mmap'd region without copying. The slot's
-`data_offset` and `data_length` describe where the payload lives.
+payloads sequentially, wrapping around when the end is reached. The
+slot's `data_offset` and `data_length` describe where the payload lives.
+
+`rss_ring_read()` returns a pointer into the mmap'd SHM region.
+Consumers that need the data to remain stable during slow operations
+(e.g. TCP send of a large keyframe) should copy it to a local buffer
+before the producer overwrites the slot. RSD does this with a per-ring
+`frame_buf` — the copy is validated by re-checking the slot sequence
+after the read.
 
 Consumers that cannot keep up (read_seq falls more than slot_count behind
 write_seq) receive `RSS_EOVERFLOW` and must skip to the next keyframe.
