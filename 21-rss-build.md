@@ -61,7 +61,7 @@ raptor/
 │   │   ├── CMakeLists.txt          # rod binary
 │   │   └── src/
 │   │       ├── rod_main.c
-│   │       ├── rod_render.c        # FreeType text rendering
+│   │       ├── rod_render.c        # libschrift text rendering
 │   │       └── rod_osd_pub.c       # OSD SHM producer (double-buffer + eventfd)
 │   ├── rad/
 │   │   ├── CMakeLists.txt          # rad binary
@@ -151,7 +151,6 @@ endif()
 # --- Optional dependencies ---
 find_package(PkgConfig)
 if(PKG_CONFIG_FOUND)
-    pkg_check_modules(FREETYPE2 freetype2)
     pkg_check_modules(CJSON cjson)
 endif()
 
@@ -168,13 +167,7 @@ add_subdirectory(lib/librss_common)
 # --- Daemons ---
 add_subdirectory(daemons/rvd)
 add_subdirectory(daemons/rad)
-
-# ROD requires FreeType2
-if(FREETYPE2_FOUND)
-    add_subdirectory(daemons/rod)
-else()
-    message(WARNING "FreeType2 not found -- ROD (OSD daemon) will not be built")
-endif()
+add_subdirectory(daemons/rod)
 
 add_subdirectory(daemons/rsd)
 add_subdirectory(daemons/rmr)
@@ -319,9 +312,9 @@ RAPTOR_VERSION = $(RAPTOR_SITE_BRANCH)
 RAPTOR_DEPENDENCIES += ingenic-lib
 RAPTOR_DEPENDENCIES += libschrift
 
-# ROD requires FreeType2 for text rendering
+# ROD requires libschrift for text rendering
 ifeq ($(BR2_PACKAGE_RAPTOR_OSD),y)
-	RAPTOR_DEPENDENCIES += freetype
+	RAPTOR_DEPENDENCIES += libschrift
 endif
 
 # RSD RTSP server -- live555 or custom
@@ -532,9 +525,9 @@ if BR2_PACKAGE_RAPTOR
 config BR2_PACKAGE_RAPTOR_OSD
 	bool "OSD overlay daemon (ROD)"
 	default y
-	select BR2_PACKAGE_FREETYPE
+	select BR2_PACKAGE_LIBSCHRIFT
 	help
-	  Build the OSD overlay daemon with FreeType2 text rendering.
+	  Build the OSD overlay daemon with libschrift text rendering.
 
 config BR2_PACKAGE_RAPTOR_RTSP_LIVE555
 	bool "RTSP server uses live555"
@@ -766,8 +759,7 @@ Valgrind is too slow for target MIPS, so it is only used on x86 stubs.
 | ingenic-lib | HAL (all SoC builds) | libimp.so, libisp.so, libalog.so vendor SDK | Yes (target) |
 | ingenic-headers | HAL | IMP SDK headers | Yes (target) |
 | ingenic-musl or ingenic-uclibc | all daemons | C library shim for vendor SDK | Yes (per toolchain) |
-| FreeType2 | ROD | TrueType font rendering for OSD text | Yes for ROD |
-| libschrift | ROD (fallback) | Lightweight font rendering alternative | Optional |
+| libschrift | ROD | TrueType font rendering for OSD text (~1300 lines, no deps) | Yes for ROD |
 | cJSON or json-c | librss_common | JSON configuration file parsing | Yes (one of) |
 | live555 | RSD (optional) | RTSP/RTP server framework | Optional |
 | libcurl | RSP | HTTP/RTMP client for stream push | Yes for RSP |

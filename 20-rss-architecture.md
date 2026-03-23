@@ -40,7 +40,7 @@ ring buffers. Exactly one instance of each runs per camera.
 - **Role**: Render OSD overlays (timestamp, camera name, custom text,
   logo) into BGRA bitmaps and publish them to OSD SHM double-buffers.
 - **HAL dependency**: None. ROD does not touch the HAL. It renders
-  bitmaps in userspace using FreeType2 for text and raw BGRA blitting
+  bitmaps in userspace using libschrift for text and raw BGRA blitting
   for logos.
 - **Outputs**: OSD SHM double-buffer (one per OSD region per stream
   channel). Notifies RVD via eventfd after each update.
@@ -351,7 +351,7 @@ typedef struct {
 #### ROD -> RVD Protocol
 
 1. ROD determines which buffer is **inactive**: `inactive = 1 - active_buf`
-2. ROD renders the new bitmap into `buf[inactive]` (FreeType2 text, logo blit)
+2. ROD renders the new bitmap into `buf[inactive]` (libschrift text, logo blit)
 3. ROD atomically stores `active_buf = inactive` (release ordering)
 4. ROD atomically stores `dirty = 1`
 5. ROD writes `(uint64_t)1` to the eventfd
@@ -679,7 +679,7 @@ RVD daemon                           ~800     code + stack + internal buffers
   SHM ring "sub"  (360p H264)        ~512     16 slots * ~32KB max frame
 RAD daemon                           ~256     code + stack + audio buffers
   SHM ring "audio"                    ~128     32 slots * 4KB audio frames
-ROD daemon                           ~512     code + FreeType + glyph cache
+ROD daemon                           ~256     code + libschrift + glyph cache
   OSD SHM double-buffers              ~256     2 regions * 2 bufs * ~32KB
 RSD daemon                           ~512     code + RTSP session state
 RMR daemon                           ~384     code + muxer + write buffer
