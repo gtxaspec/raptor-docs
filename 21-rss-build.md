@@ -67,11 +67,14 @@ raptor/
 │   │       ├── rad_main.c
 │   │       └── rad_audio_loop.c    # audio read + encode + ring publish
 │   ├── rsd/
-│   │   ├── CMakeLists.txt          # rsd binary
-│   │   └── src/
-│   │       ├── rsd_main.c
-│   │       ├── rsd_rtsp.c          # RTSP session management
-│   │       └── rsd_rtp.c           # RTP packetization
+│   │   ├── Makefile
+│   │   ├── rsd_main.c
+│   │   ├── rsd_server.c            # epoll event loop, client management
+│   │   ├── rsd_session.c           # RTSP/compy controller (DESCRIBE/SETUP/PLAY)
+│   │   └── rsd_ring_reader.c       # video + audio ring reader threads
+│   ├── rhd/
+│   │   ├── Makefile
+│   │   └── rhd_main.c              # HTTP server: /snap.jpg, /mjpeg (dual-stack IPv6)
 │   ├── rmr/
 │   │   ├── CMakeLists.txt
 │   │   └── src/

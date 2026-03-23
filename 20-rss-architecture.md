@@ -25,8 +25,11 @@ ring buffers. Exactly one instance of each runs per camera.
 - **HAL dependency**: RVD is the HAL owner. It calls `rss_hal_create()`,
   `init()`, and builds the full video pipeline:
   `sensor -> FS -> OSD -> Enc`.
-- **Outputs**: Two SHM rings by default (main stream, sub stream).
-  Optionally a third for JPEG snapshots.
+- **Outputs**: Two video SHM rings (main, sub), two JPEG SHM rings
+  (jpeg0, jpeg1 — one per video stream for snapshots), and atomic
+  snapshot files (`/tmp/snapshot-0.jpg`, `/tmp/snapshot-1.jpg`).
+- **JPEG channels**: Use encoder channels 4+ (SDK convention), registered
+  into video encoder groups via buffer sharing. No separate framesource.
 - **OSD interaction**: RVD creates OSD groups and regions, then listens
   on an eventfd for bitmap updates from ROD. When the eventfd fires,
   RVD reads the active OSD SHM buffer and calls
@@ -53,8 +56,8 @@ ring buffers. Exactly one instance of each runs per camera.
 #### RAD -- Audio Daemon
 
 - **Role**: Initialize audio input through the HAL, read PCM frames,
-  optionally encode (G.711a, AAC, Opus), and publish encoded audio
-  frames to an audio SHM ring buffer.
+  encode (PCMU/G.711 mu-law, PCMA/G.711 A-law, or L16 uncompressed),
+  and publish encoded audio frames to an audio SHM ring buffer.
 - **HAL dependency**: Calls `audio_init()`, `audio_read_frame()`, and
   optionally `audio_register_encoder()` through the HAL.
 - **Outputs**: One SHM ring (audio).
@@ -75,13 +78,28 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Inputs**: Main video ring, sub video ring, audio ring.
 - **Dependencies**: librss_ipc (SHM ring consumer API). Optionally
   libevent or poll-based event loop. No HAL dependency.
-- **Protocol**: Standard RTSP (DESCRIBE/SETUP/PLAY/TEARDOWN). Two
-  mount points: `/main` (stream 0) and `/sub` (stream 1). Audio track
-  included when RAD is running.
+- **Protocol**: Standard RTSP 1.0 (DESCRIBE/SETUP/PLAY/TEARDOWN). Two
+  mount points: `/stream0` (main) and `/stream1` (sub). Audio track
+  included when RAD is running. TCP interleaved and UDP transport.
+  Uses compy as RTSP protocol library.
 - **Why separate**: RTSP client management (socket I/O, RTP packetization,
   RTCP) is complex and has its own failure modes (slow clients, network
   errors). Isolating it means a misbehaving RTSP client cannot affect
   frame production or recording.
+
+#### RHD -- HTTP Daemon
+
+- **Role**: HTTP server for JPEG snapshots and MJPEG streaming.
+- **Inputs**: JPEG SHM rings (jpeg0, jpeg1), snapshot files on disk.
+- **Dependencies**: librss_ipc (ring consumer), librss_common.
+- **Endpoints**:
+  - `/snap.jpg` or `/snap.jpg?stream=0` — main stream snapshot (1920x1080)
+  - `/snap.jpg?stream=1` — sub stream snapshot (640x360)
+  - `/mjpeg` — MJPEG stream (multipart/x-mixed-replace from jpeg0 ring)
+  - `/` — simple HTML index page with links and embedded MJPEG preview
+- **Network**: Dual-stack IPv6 (AF_INET6 with IPV6_V6ONLY=0), port 8080.
+- **Why separate**: HTTP and RTSP are different protocols with different
+  connection lifecycles. RHD can serve snapshots even if RSD is down.
 
 #### RMR -- Recorder
 
@@ -572,9 +590,11 @@ implementation uses `IMPVI_NUM` to route to the correct ISP pipeline).
    - Binds pipeline: FS -> OSD -> Enc
    - Enables framesource channels
    - Starts encoder receive
-   - Creates SHM rings (main, sub)
+   - Creates JPEG encoder channels (chn 4, 5) with bufshare, registers into video groups
+   - Creates SHM rings (main, sub, jpeg0, jpeg1)
    - Creates control socket
    - Enters frame loop: enc_poll -> enc_get_frame -> ring_publish_iov -> enc_release_frame
+   - JPEG threads also write /tmp/snapshot-N.jpg atomically
 
 2. RAD starts (optional, independent of RVD)
    - Opens HAL context (shares the HAL -- audio subsystem is independent)
@@ -589,24 +609,23 @@ implementation uses `IMPVI_NUM` to route to the correct ISP pipeline).
    - Enters render loop: render text -> write inactive buf -> swap -> notify
 
 4. Consumer daemons start (any order, after RVD)
-   - RSD: opens SHM rings, starts RTSP listener
+   - RSD: opens video + audio SHM rings, starts RTSP listener on port 554
+   - RHD: opens jpeg SHM rings, starts HTTP listener on port 8080 (dual-stack)
    - RMR: opens SHM rings, waits for start command or auto-starts
    - RSP: opens SHM rings, connects to push target
-   - RV4: opens sub SHM ring, creates V4L2 device
 
 5. Control daemons start (any order)
    - RIC: queries HAL exposure, manages IR-cut GPIO
-   - RMC: listens for motor commands on control socket
 ```
 
 ### 4.2 Dependency Graph
 
 ```
         RVD (HAL owner)
-       / | \     \
+       / | \      \
      ROD RAD  [consumers]
-               /  |  \  \
-             RSD RMR RSP RV4
+              / |  \  \
+           RSD RHD RMR RSP
 
      RIC (independent HAL user -- exposure queries only)
      RMC (independent -- GPIO/UART only)
@@ -705,30 +724,29 @@ If a producer crashes without unlinking its SHM:
 
 ### 6.1 T31 (64MB Total RAM)
 
-Estimated per-daemon RSS at steady state:
+Measured per-daemon RSS on T31X with 2 RTSP clients + dual JPEG:
 
 ```
 Component                         RAM (KB)    Notes
 ───────────────────────────────────────────────────────
 Kernel + drivers                  ~12,000     includes ISP firmware
 libimp.so (loaded by RVD/RAD)      ~2,000     vendor SDK shared library
-RVD daemon                           ~800     code + stack + internal buffers
-  SHM ring "main" (1080p H264)     ~3,072     16 slots * ~192KB max frame
-  SHM ring "sub"  (360p H264)        ~512     16 slots * ~32KB max frame
-RAD daemon                           ~256     code + stack + audio buffers
-  SHM ring "audio"                    ~128     32 slots * 4KB audio frames
-ROD daemon                           ~256     code + libschrift + glyph cache
-  OSD SHM double-buffers              ~256     2 regions * 2 bufs * ~32KB
-RSD daemon                           ~512     code + RTSP session state
-RMR daemon                           ~384     code + muxer + write buffer
-RIC daemon                           ~128     minimal; polls exposure
+RVD daemon                         ~7,072     4 encoder threads (128KB stacks)
+  SHM ring "main" (1080p H264)     ~4,096     32 slots, 4MB data
+  SHM ring "sub"  (360p H264)      ~1,024     32 slots, 1MB data
+  SHM ring "jpeg0"                    512     4 slots, 512KB data
+  SHM ring "jpeg1"                    512     4 slots, 512KB data
+RAD daemon                         ~1,040     code + audio buffers
+  SHM ring "audio"                    ~256     32 slots
+RSD daemon                         ~6,076     compy + per-client state
+RHD daemon                         ~2,360     HTTP + JPEG ring readers
 raptorctl                              64     transient; runs and exits
 ───────────────────────────────────────────────────────
-Subtotal userspace                ~20,624
+Subtotal userspace                ~14,000     measured with 2 clients streaming
 Encoder DMA buffers (rmem)        ~16,384     reserved memory, not in budget
-Remaining for OS/cache            ~15,000
+Free                              ~51,000     available for OS/cache
 ───────────────────────────────────────────────────────
-Total                             ~48,000     leaves ~16MB headroom
+CPU usage                           <2%       hardware encoder does the work
 ```
 
 ### 6.2 Optimization Strategies
@@ -834,93 +852,83 @@ invalid CPU numbers.
 
 ## 8. Configuration
 
-All daemons read from a single JSON configuration file (`/etc/raptor.json`).
-Each daemon reads only its own section plus the shared `hal` section:
+All daemons read from a single INI configuration file (`/etc/raptor.conf`).
+Each daemon reads only the sections it needs. Runtime changes via `raptorctl`
+update the in-memory config; `raptorctl config save` persists to disk.
 
-```json
-{
-    "hal": {
-        "sensor": {
-            "name": "gc2053",
-            "i2c_addr": 55,
-            "i2c_adapter": 0,
-            "rst_gpio": 18,
-            "pwdn_gpio": -1
-        }
-    },
-    "rvd": {
-        "streams": [
-            {
-                "id": 0,
-                "width": 1920, "height": 1080,
-                "codec": "h264", "profile": 2,
-                "bitrate": 2000000, "rc_mode": "vbr",
-                "fps": 25, "gop": 50
-            },
-            {
-                "id": 1,
-                "width": 640, "height": 360,
-                "codec": "h264", "profile": 0,
-                "bitrate": 500000, "rc_mode": "cbr",
-                "fps": 15, "gop": 30
-            }
-        ],
-        "ring": {
-            "main_slots": 16, "main_data_mb": 3,
-            "sub_slots": 16, "sub_data_mb": 1
-        },
-        "cpu_affinity": 0,
-        "sched_priority": 50
-    },
-    "rad": {
-        "sample_rate": 16000,
-        "codec": "alaw",
-        "volume": 80,
-        "gain": 25,
-        "ns_level": "moderate",
-        "ring_slots": 32,
-        "ring_data_kb": 128
-    },
-    "rod": {
-        "regions": [
-            {
-                "name": "timestamp",
-                "stream": 0,
-                "x": 10, "y": 10,
-                "font_size": 32,
-                "format": "%Y-%m-%d %H:%M:%S"
-            },
-            {
-                "name": "camname",
-                "stream": 0,
-                "x": 10, "y": 1040,
-                "font_size": 24,
-                "text": "Front Door"
-            }
-        ],
-        "font": "/usr/share/fonts/default.ttf",
-        "update_interval_ms": 500
-    },
-    "rsd": {
-        "port": 554,
-        "max_clients": 4,
-        "mount_main": "/main",
-        "mount_sub": "/sub"
-    },
-    "rmr": {
-        "path": "/mnt/sd/recordings",
-        "format": "mp4",
-        "segment_minutes": 5,
-        "auto_start": false
-    },
-    "ric": {
-        "mode": "auto",
-        "day_threshold": 800,
-        "night_threshold": 200,
-        "hysteresis_sec": 10,
-        "ircut_gpio_a": 25,
-        "ircut_gpio_b": 26,
-        "ir_led_gpio": 49
-    }
-}
+```ini
+[sensor]
+name = gc4653
+i2c_addr = 0x29
+i2c_adapter = 0
+
+[stream0]
+width = 1920
+height = 1080
+fps = 25
+codec = h264           # h264, h265, jpeg
+profile = 2            # 0=baseline, 1=main, 2=high
+bitrate = 2000000
+rc_mode = vbr          # cbr, vbr, fixqp, capped_vbr
+gop = 50
+min_qp = 15
+max_qp = 45
+
+[stream1]
+enabled = true
+width = 640
+height = 360
+fps = 25
+codec = h264
+profile = 0
+bitrate = 500000
+rc_mode = cbr
+gop = 50
+
+[jpeg]
+enabled = true
+quality = 75           # 1-100
+fps = 1                # snapshot refresh rate
+bufshare = true        # share buffer pool with video encoder
+
+[ring]
+main_slots = 32
+main_data_mb = 4
+sub_slots = 32
+sub_data_mb = 1
+
+[audio]
+enabled = true
+sample_rate = 16000
+codec = l16            # pcmu, pcma, l16
+volume = 80
+gain = 25
+
+[rtsp]
+port = 554
+max_clients = 4
+
+[http]
+port = 8080
+
+[osd]
+enabled = true
+font = /usr/share/fonts/default.ttf
+font_size = 24
+timestamp = true
+timestamp_fmt = %Y-%m-%d %H:%M:%S
+label = Camera
+
+[ircut]
+enabled = true
+mode = auto
+day_threshold = 25000
+night_threshold = 40000
+hysteresis_sec = 5
+gpio_ircut = 25
+gpio_irled = 26
+
+[log]
+level = info           # fatal, error, warn, info, debug, trace
+target = syslog        # stderr, syslog, file
 ```
