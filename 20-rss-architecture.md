@@ -776,14 +776,30 @@ If a producer crashes without unlinking its SHM:
 
 ## 6. Memory Budget
 
-### 6.1 T31 (64MB Total RAM)
+### 6.1 T31X Memory Layout
 
-Measured per-daemon RSS on T31X with 2 RTSP clients + dual JPEG:
+The T31X has 128MB physical RAM, split between Linux and reserved memory:
+
+```
+Region                            Size        Notes
+───────────────────────────────────────────────────────
+Linux-visible (MemTotal)          ~60 MB      kernel + userspace + page cache
+Encoder DMA (rmem=64M@0x4000000) ~64 MB      ISP/encoder reserved memory
+Kernel reserved                    ~4 MB      kernel text, page tables, etc.
+───────────────────────────────────────────────────────
+Physical total                    128 MB
+```
+
+The rmem pool is NOT available to Linux. Encoder DMA buffers, ISP
+firmware, and video pipeline memory come from this pool. It is
+configured via bootloader `rmem=` kernel parameter.
+
+### 6.2 Userspace Memory (measured on T31X gc4653 2560x1440)
 
 ```
 Component                         RAM (KB)    Notes
 ───────────────────────────────────────────────────────
-Kernel + drivers                  ~12,000     includes ISP firmware
+Kernel + drivers                  ~12,000     within Linux-visible 60MB
 libimp.so (loaded by RVD/RAD)      ~2,000     vendor SDK shared library
 RVD daemon                         ~7,072     6 threads (128KB stacks)
   SHM ring "main" (1080p H264)     ~4,096     32 slots, 4MB data
@@ -797,9 +813,8 @@ RSD daemon                         ~6,076     compy + per-client state
 RHD daemon                         ~2,360     HTTP + JPEG ring readers
 raptorctl                              64     transient; runs and exits
 ───────────────────────────────────────────────────────
-Subtotal userspace                ~14,000     measured with 2 clients streaming
-Encoder DMA buffers (rmem)        ~16,384     reserved memory, not in budget
-Free                              ~51,000     available for OS/cache
+Subtotal userspace                ~11,000     measured with all 5 daemons running
+Free + page cache                 ~49,000     available for OS/applications
 ───────────────────────────────────────────────────────
 CPU usage                           <2%       hardware encoder does the work
 ```
