@@ -76,12 +76,14 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Role**: RTSP/RTP server. Reads video and audio SHM rings, packetizes
   into RTP, serves to clients via RTSP.
 - **Inputs**: Main video ring, sub video ring, audio ring.
-- **Dependencies**: librss_ipc (SHM ring consumer API). Optionally
-  libevent or poll-based event loop. No HAL dependency.
+- **Dependencies**: librss_ipc (SHM ring consumer API), compy (RTSP
+  protocol library). Epoll-based event loop. No HAL dependency.
 - **Protocol**: Standard RTSP 1.0 (DESCRIBE/SETUP/PLAY/TEARDOWN). Two
   mount points: `/stream0` (main) and `/stream1` (sub). Audio track
   included when RAD is running. TCP interleaved and UDP transport.
-  Uses compy as RTSP protocol library.
+- **Network**: Dual-stack IPv6 (AF_INET6 with IPV6_V6ONLY=0), port 554.
+  Per-client RTP timestamp offsets ensure each client sees timestamps
+  starting from zero on connect (set on first keyframe delivery).
 - **Why separate**: RTSP client management (socket I/O, RTP packetization,
   RTCP) is complex and has its own failure modes (slow clients, network
   errors). Isolating it means a misbehaving RTSP client cannot affect
@@ -165,14 +167,19 @@ These daemons control hardware peripherals and do not process frame data.
 - **Role**: Command-line interface for daemon management and diagnostics.
 - **Communication**: Connects to each daemon's Unix control socket.
 - **Commands**:
-  - `raptorctl status` -- show running daemons and stream stats
-  - `raptorctl rvd dump-frame` -- dump one encoded frame to stdout
-  - `raptorctl rvd request-idr` -- request an IDR frame
-  - `raptorctl rvd set-bitrate <bps>` -- change encoder bitrate
-  - `raptorctl rod set-text <region> <text>` -- update OSD text
-  - `raptorctl ric mode <auto|day|night>` -- set day/night mode
-  - `raptorctl rmc move <direction> <steps>` -- PTZ command
-  - `raptorctl rmr start|stop` -- start/stop recording
+  - `raptorctl status` -- show running daemons (PID or stopped)
+  - `raptorctl get <section> <key>` -- query live value from daemon, fall back to file
+  - `raptorctl set <section> <key> <value>` -- write value to config file
+  - `raptorctl config save` -- tell all daemons to persist running config to disk
+  - `raptorctl <daemon> status` -- show daemon-specific details
+  - `raptorctl <daemon> config` -- show daemon's running config
+  - `raptorctl rvd request-idr [channel]` -- request an IDR frame
+  - `raptorctl rvd set-bitrate <ch> <bps>` -- change encoder bitrate
+  - `raptorctl rvd set-gop <ch> <length>` -- change GOP length
+  - `raptorctl rvd set-fps <ch> <fps>` -- change frame rate
+  - `raptorctl rvd set-qp-bounds <ch> <min> <max>` -- change QP range
+  - `raptorctl rad set-volume <val>` -- change audio input volume
+  - `raptorctl rad set-gain <val>` -- change audio input gain
 
 ---
 
@@ -502,7 +509,7 @@ Encoder[0] (H264/H265, 1080p/2K)                    Encoder[1] (H264, 640x360)
   v                                                       v
 SHM Ring "main"                                      SHM Ring "sub"
   |                                                       |
-  +---> RSD (RTSP /main)                                  +---> RSD (RTSP /sub)
+  +---> RSD (RTSP /stream0)                                +---> RSD (RTSP /stream1)
   +---> RMR (MP4 recording)                               +---> RV4 (V4L2 bridge)
   +---> RSP (RTMP push)
 ```
@@ -527,7 +534,7 @@ PCM 16-bit @ 8/16kHz
 [Optional: NS, HPF, AGC processing in HAL]
   |
   v
-Audio Encoder (G.711a / AAC / Opus)
+Audio Encoder (PCMU / PCMA / L16)
   |
   v
 SHM Ring "audio"
@@ -650,7 +657,7 @@ case "$1" in
     start)
         mkdir -p /var/run/rss
         # RVD must start first and signal readiness
-        start-stop-daemon -S -b -x /usr/bin/rvd -- -c /etc/raptor.json
+        start-stop-daemon -S -b -x /usr/bin/rvd -- -c /etc/raptor.conf
         # Wait for RVD to create SHM rings (up to 5s)
         timeout=50
         while [ $timeout -gt 0 ] && [ ! -e /dev/shm/rss_ring_main ]; do
@@ -658,14 +665,16 @@ case "$1" in
             timeout=$((timeout - 1))
         done
         # Start remaining daemons
-        start-stop-daemon -S -b -x /usr/bin/rad -- -c /etc/raptor.json
-        start-stop-daemon -S -b -x /usr/bin/rod -- -c /etc/raptor.json
-        start-stop-daemon -S -b -x /usr/bin/rsd -- -c /etc/raptor.json
-        start-stop-daemon -S -b -x /usr/bin/ric -- -c /etc/raptor.json
+        start-stop-daemon -S -b -x /usr/bin/rad -- -c /etc/raptor.conf
+        start-stop-daemon -S -b -x /usr/bin/rod -- -c /etc/raptor.conf
+        start-stop-daemon -S -b -x /usr/bin/rsd -- -c /etc/raptor.conf
+        start-stop-daemon -S -b -x /usr/bin/rhd -- -c /etc/raptor.conf
+        start-stop-daemon -S -b -x /usr/bin/ric -- -c /etc/raptor.conf
         ;;
     stop)
         # Stop consumers first, then producers, then HAL owner
         start-stop-daemon -K -x /usr/bin/rsd
+        start-stop-daemon -K -x /usr/bin/rhd
         start-stop-daemon -K -x /usr/bin/ric
         start-stop-daemon -K -x /usr/bin/rod
         start-stop-daemon -K -x /usr/bin/rad
@@ -821,16 +830,28 @@ static void pin_to_cpu(int cpu) {
 }
 ```
 
-The target CPU is read from the config file:
+The target CPU is read from the config file (`/etc/raptor.conf`):
 
-```json
-{
-    "rvd": { "cpu_affinity": 0, "sched_priority": 50 },
-    "rsd": { "cpu_affinity": 1, "sched_priority": 30 },
-    "rod": { "cpu_affinity": 1, "sched_priority": 20 },
-    "rad": { "cpu_affinity": 1, "sched_priority": 40 },
-    "ric": { "cpu_affinity": 1, "sched_priority": 10 }
-}
+```ini
+[rvd]
+cpu_affinity = 0
+sched_priority = 50
+
+[rsd]
+cpu_affinity = 1
+sched_priority = 30
+
+[rad]
+cpu_affinity = 1
+sched_priority = 40
+
+[rod]
+cpu_affinity = 1
+sched_priority = 20
+
+[ric]
+cpu_affinity = 1
+sched_priority = 10
 ```
 
 On single-core SoCs (T20, T21, T23, T30, T31), `cpu_affinity` is
