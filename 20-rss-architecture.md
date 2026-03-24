@@ -137,10 +137,29 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 
 #### RMR -- Recorder
 
-- **Role**: Mux video and audio frames into MP4/MKV files on local
-  storage (SD card, NFS).
+- **Role**: Fragmented MP4 recording daemon. Reads H.264/H.265 and audio
+  frames from SHM rings and writes fMP4 segments to SD card (or any
+  writable path). Each `moof+mdat` box pair is self-contained, so a
+  crash or power loss cannot corrupt already-written segments.
 - **Inputs**: Main video ring (or sub), audio ring.
-- **Dependencies**: librss_ipc, lightweight muxer (custom or libavformat).
+- **Muxer**: Own lightweight fMP4 muxer — zero external dependencies. No
+  libavformat required. The muxer is stateless per-segment; on rotation
+  it closes the current file and opens a new one without touching the
+  previous segment.
+- **Thread model**: Two threads — a **reader thread** (ring consumer →
+  muxer → write buffer) and a **writer thread** (drains an SPSC circular
+  buffer → `write(fd)`). The SPSC buffer decouples the real-time ring
+  reader from SD card write stalls.
+- **Crash safety**: Each `moof+mdat` pair is flushed before the reader
+  advances. A crash between segments leaves all prior segments intact
+  and playable.
+- **Timestamps**: Video DTS is derived from ring slot timestamps. Audio
+  DTS is counter-based (sample count / sample rate), avoiding clock skew
+  between ring producers.
+- **Storage management**: Configurable segment rotation (`segment_minutes`
+  in config) and storage cleanup (oldest segments deleted when free space
+  falls below threshold).
+- **Dependencies**: librss_ipc, librss_common. No HAL dependency.
 - **Why separate**: File I/O can block (SD card write stalls). Isolating
   the recorder prevents storage latency from affecting the live stream.
   RMR can be started/stopped via raptorctl for event-triggered recording.
@@ -975,6 +994,7 @@ Each daemon reads only the sections it needs.
 name = gc4653
 i2c_addr = 0x29
 i2c_adapter = 0
+fps = 0                # 0 = auto-detect from /proc/jz/sensor/max_fps
 
 [stream0]
 width = 1920
@@ -1001,6 +1021,8 @@ gop = 50
 
 [jpeg]
 enabled = true
+jpeg0_enabled = true   # per-channel enable; each JPEG channel costs ~5fps on T20
+jpeg1_enabled = true   # disable sub-stream JPEG to recover fps on T20
 quality = 75           # 1-100
 fps = 1                # snapshot refresh rate
 bufshare = true        # share buffer pool with video encoder
@@ -1142,3 +1164,24 @@ T20 uses the gen1 HAL (`hal_gen1.c`). Notably it has no H265 encoder
 and no dynamic bitrate support; RVD falls back to H264 and logs a
 warning if H265 is requested in config. All consumer daemons are
 codec-agnostic and work without modification.
+
+### 11.1 T20 FPS Characteristics
+
+On T20, JPEG encoder channels are the primary fps bottleneck due to the
+SDK's shared encoder resource model:
+
+| Configuration | Measured FPS |
+|---------------|-------------|
+| No JPEG channels | 30 fps |
+| 1 JPEG channel (`jpeg0_enabled=true`, `jpeg1_enabled=false`) | ~25 fps |
+| 2 JPEG channels (`jpeg0_enabled=true`, `jpeg1_enabled=true`) | ~23 fps |
+| OSD enabled (any config) | no fps impact |
+
+T31 runs full 30fps with all channels (both JPEG + OSD) enabled
+simultaneously. Users on T20 who do not need sub-stream JPEG snapshots
+should set `jpeg1_enabled = false` in `[jpeg]` config to recover the
+lost frames.
+
+Sensor FPS auto-detection reads `/proc/jz/sensor/max_fps` on startup.
+Set `fps = 0` (default) in `[sensor]` to use the auto-detected value,
+or set a specific integer to override.

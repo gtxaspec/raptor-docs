@@ -836,3 +836,53 @@ Daemons: RVD + RAD + ROD + RSD + RMR + RSP + RV4 + RIC + RMC
 Dependencies: all of the above
 Approximate total binary size (stripped): ~400KB
 ```
+
+---
+
+## 9. RMR Build Notes
+
+RMR (`daemons/rmr/`) is a standard daemon target in the top-level
+`CMakeLists.txt` (`add_subdirectory(daemons/rmr)`). It links against
+`rss_ipc` and `rss_common` only — no HAL dependency, no libavformat
+required when the built-in fMP4 muxer is used.
+
+```cmake
+# daemons/rmr/CMakeLists.txt (summary)
+add_executable(rmr src/rmr_main.c src/rmr_muxer.c)
+target_link_libraries(rmr PRIVATE rss_ipc rss_common pthread rt)
+install(TARGETS rmr DESTINATION /usr/bin)
+```
+
+The `BR2_PACKAGE_RAPTOR_RECORDER_FFMPEG` Buildroot option is available
+but not required. When disabled (the default), RMR uses the built-in
+muxer and has no additional library dependencies.
+
+---
+
+## 10. build-asan.sh
+
+`build-asan.sh` in the repository root builds all daemons (including
+RMR) for the x86_64 host with AddressSanitizer and
+UndefinedBehaviorSanitizer enabled. It does not require the
+cross-compilation toolchain or Ingenic SDK.
+
+Daemons covered: RVD (mock HAL), RAD (mock HAL), RSD, RHD, ROD, RIC,
+**RMR** (ring mock via `tests/create_rings.c`).
+
+RMR-specific test setup used by `build-asan.sh`:
+- Mock rings are pre-populated with continuous H.264 NAL units and audio
+  frames so RMR can exercise its reader thread without RVD running.
+- Segment rotation is exercised by setting a short `segment_minutes`
+  value (e.g. `1`) in the test config.
+
+All outputs land in `asan-out/`. Run with:
+
+```sh
+./build-asan.sh
+./asan-out/create_rings &
+./asan-out/rmr -c config/raptor-asan-test.json &
+# ... exercise, then:
+kill $(pidof rmr create_rings)
+wait
+# ASan reports printed to stderr on exit
+```

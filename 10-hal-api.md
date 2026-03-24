@@ -297,7 +297,10 @@ typedef struct {
         int     out_height;
     } scaler;
 
-    /* Number of video buffer blocks; 0 = SDK default (typically 2-4) */
+    /* Number of video buffer blocks.
+     * Default: 3 (matches prudynt-t and is required for T20 to reach
+     * full 30fps without JPEG channels; SDK default of 2 causes frame
+     * stalls under load). Set to 0 to use the SDK default. */
     int             nr_vbs;
 
     /* Channel type: 0 = physical, 1 = extension */
@@ -438,6 +441,13 @@ typedef struct {
     int                 rst_gpio;
     int                 pwdn_gpio;
     int                 power_gpio;
+
+    /* Sensor maximum frame rate.
+     * 0 = auto-detect: RVD reads /proc/jz/sensor/max_fps at startup
+     *     and uses that value. This is the recommended default.
+     * >0 = use the specified fps, overriding the procfs value.
+     * Exposed as [sensor] fps = 0 in raptor.json. */
+    uint32_t            max_fps;
 } rss_sensor_config_t;
 ```
 

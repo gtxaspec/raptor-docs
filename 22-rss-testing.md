@@ -823,3 +823,75 @@ The full suite has been stress tested with:
 
 Across all 6 daemons simultaneously, the result is zero memory leaks
 and zero UBSan errors reported by ASan at exit.
+
+### 7.5 RMR ASan Testing
+
+RMR is included in the `build-asan.sh` suite. Its test harness uses
+mock SHM rings pre-populated with continuous H.264 frames plus audio
+frames (via `tests/create_rings.c`), so the reader thread exercises the
+full ring→muxer→SPSC→write path without requiring RVD or RAD.
+
+**Segment rotation**: tested by setting `segment_minutes = 1` in the
+test config. The muxer closes and reopens files correctly across
+multiple rotation boundaries with no leaked file descriptors.
+
+**Memory safety audit results**: a dedicated audit pass over RMR's
+source found and fixed the following issues before release:
+
+| Severity | Issue | Fix |
+|----------|-------|-----|
+| CRITICAL | `segment_fd` accessed from both reader and writer threads without synchronization | Protected with mutex; writer thread owns fd, reader signals close via flag |
+| CRITICAL | SPSC ring consumer had a dual-consumer path reachable under error recovery | Enforced single-consumer invariant; error recovery restarts reader thread instead of retrying inline |
+| CRITICAL | `malloc()` return unchecked in muxer box-building paths | All allocations now checked; fatal-log + clean shutdown on OOM |
+| HIGH | Integer overflow in box size calculation for large frames (>16MB) | Added overflow check before size accumulation |
+| HIGH | Audio DTS counter not reset on segment rotation | Counter now resets to 0 at each new segment |
+| HIGH | SPSC write-ahead index stored as `int` (wraps at 2GB write) | Changed to `uint64_t` |
+| HIGH | Unchecked `write()` return in writer thread (partial writes on full disk) | Writer now retries on `EINTR`, logs and stops recording on `ENOSPC` |
+| HIGH | Storage cleanup walked directory with `readdir()` on the recording path without re-opening on each rotation | `opendir`/`closedir` now called per-cleanup pass |
+| HIGH | Segment file path buffer (256 bytes) could overflow with long base paths | Buffer increased to `PATH_MAX`; truncation now caught |
+
+ASan run outcome for RMR: zero memory leaks, zero UBSan violations across
+100 segment rotations and 10,000 mock frames processed.
+
+---
+
+## 8. T20 FPS Benchmarking
+
+### 8.1 Methodology
+
+FPS is measured using `ringdump` in frame-flush mode with a fixed frame
+count:
+
+```sh
+ringdump -f -n 200
+```
+
+The `-f` flag enables timestamp-based fps calculation (wall time of
+first frame to wall time of last frame divided by count). `-n 200`
+collects 200 frames, giving a stable average over ~6 seconds at 30fps.
+
+### 8.2 T20 Test Configurations
+
+| OSD | JPEG Channels | Measured FPS |
+|-----|--------------|-------------|
+| off | 0 | 30 |
+| on  | 0 | 30 |
+| off | 1 (jpeg0 only) | ~25 |
+| on  | 1 (jpeg0 only) | ~25 |
+| off | 2 (jpeg0 + jpeg1) | ~23 |
+| on  | 2 (jpeg0 + jpeg1) | ~23 |
+
+Key findings:
+- OSD has **zero fps impact** on T20. The OSD render path (ROD daemon)
+  is fully asynchronous; it does not consume encoder resources.
+- Each JPEG channel costs approximately 5fps due to the T20 SDK's shared
+  encoder resource model (JPEG channels compete with video channels for
+  encoder bandwidth).
+- Users who do not need sub-stream snapshots should set
+  `jpeg1_enabled = false` in `[jpeg]` config.
+
+### 8.3 T31 Reference
+
+T31 runs at full **30fps** with both JPEG channels and OSD enabled
+simultaneously. The T31 SDK does not have the shared-resource contention
+seen on T20.
