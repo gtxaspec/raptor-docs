@@ -758,7 +758,49 @@ Valgrind is too slow for target MIPS, so it is only used on x86 stubs.
 
 ---
 
-## 7. Dependency List
+## 7. build.sh Convenience Script
+
+`build.sh` in the repository root is a convenience wrapper around the
+CMake cross-compilation workflow. It takes a platform argument to select
+the target SoC and automatically locates the appropriate Buildroot
+staging directory from the thingino-firmware output tree.
+
+### 7.1 Usage
+
+```sh
+./build.sh t20      # build for T20
+./build.sh t21      # build for T21
+./build.sh t23      # build for T23
+./build.sh t31      # build for T31 (primary target)
+```
+
+### 7.2 Supported Platforms
+
+| Argument | SoC | SDK Generation | HAL Source |
+|----------|-----|---------------|------------|
+| `t20` | T20 | Old SDK | `hal_gen1.c` |
+| `t21` | T21 | Old SDK | `hal_gen1.c` |
+| `t23` | T23 | Old SDK (extended) | `hal_t23.c` |
+| `t31` | T31 | New SDK | `hal_t31.c` |
+
+### 7.3 Profile Selection
+
+The script auto-selects the compiler toolchain and staging directory
+from the thingino-firmware output directory. For a given platform
+argument (e.g. `t31`), `build.sh` looks for:
+
+```
+~/projects/thingino/thingino-firmware/output/<profile>/staging/
+```
+
+where `<profile>` is the Buildroot profile that matches the platform.
+The `RSS_SOC` CMake variable is set to the uppercase SoC name (T31,
+T20, etc.) and `CMAKE_TOOLCHAIN_FILE` points to
+`cmake/mips-linux-gnu.cmake`.
+
+---
+
+## 8. Dependency List
 
 | Dependency | Used By | Purpose | Required? |
 |-----------|---------|---------|-----------|

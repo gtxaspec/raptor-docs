@@ -1111,18 +1111,36 @@ typedef struct rss_hal_ops {
     /*
      * audio_read_frame -- read one audio frame from the input device.
      *
-     * Wraps IMP_AI_PollingFrame() + IMP_AI_GetFrame() + IMP_AI_ReleaseFrame().
+     * Wraps IMP_AI_PollingFrame() + IMP_AI_GetFrame(). Allocates a heap
+     * copy of the IMPAudioFrame and stores it in frame->_priv.
      *
      * dev: device number (typically 0)
      * chn: channel number (typically 0)
      * frame: output; populated by the HAL
      * block: true = blocking, false = non-blocking
      *
-     * The HAL calls PollingFrame, then GetFrame. The frame data is
-     * valid until the next audio_read_frame() call.
+     * The frame data is valid until audio_release_frame() is called.
+     * The caller MUST call audio_release_frame() for every successful
+     * audio_read_frame().
      */
     int (*audio_read_frame)(void *ctx, int dev, int chn,
                             rss_audio_frame_t *frame, bool block);
+
+    /*
+     * audio_release_frame -- release an audio frame obtained by audio_read_frame.
+     *
+     * Frees the IMPAudioFrame stored in frame->_priv via
+     * IMP_AI_ReleaseFrame(dev, chn, priv), then frees the heap copy.
+     *
+     * RAD must call this after consuming each frame. Do NOT call
+     * IMP_AI_ReleaseFrame directly -- all SDK access goes through the HAL.
+     *
+     * dev: device number (typically 0)
+     * chn: channel number (typically 0)
+     * frame: frame previously returned by audio_read_frame
+     */
+    int (*audio_release_frame)(void *ctx, int dev, int chn,
+                               rss_audio_frame_t *frame);
 
     /*
      * audio_register_encoder -- register a custom audio encoder.

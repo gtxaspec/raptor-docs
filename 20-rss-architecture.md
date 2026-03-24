@@ -88,8 +88,10 @@ ring buffers. Exactly one instance of each runs per camera.
 - **Role**: Initialize audio input through the HAL, read PCM frames,
   encode (PCMU/G.711 mu-law, PCMA/G.711 A-law, or L16 uncompressed),
   and publish encoded audio frames to an audio SHM ring buffer.
-- **HAL dependency**: Calls `audio_init()`, `audio_read_frame()`, and
-  optionally `audio_register_encoder()` through the HAL.
+- **HAL dependency**: Calls `audio_init()`, `audio_read_frame()`,
+  `audio_release_frame()`, and optionally `audio_register_encoder()`
+  through the HAL. RAD does not call `IMP_AI_ReleaseFrame` directly;
+  all SDK access goes through the HAL vtable.
 - **Outputs**: One SHM ring (audio).
 - **Why separate**: Audio runs on a fixed-period schedule (typically
   20ms frame intervals). Isolating it from video prevents encoder
@@ -1059,3 +1061,84 @@ gpio_irled = 26
 level = info           # fatal, error, warn, info, debug, trace
 target = syslog        # stderr, syslog, file
 ```
+
+---
+
+## 9. Authentication
+
+### 9.1 RTSP Digest Authentication (RSD)
+
+RSD uses compy's `Compy_Auth` for RTSP Digest authentication per
+RFC 2617. The `before()` hook in the compy Controller calls
+`compy_auth_check()` on each incoming RTSP request before dispatching
+to the method handler.
+
+Credentials are read from the `[rtsp]` section of the config file:
+
+```ini
+[rtsp]
+username = admin
+password = secret
+```
+
+If `username` or `password` is empty (or the keys are absent), auth
+is skipped entirely. This keeps the default deployment backwards
+compatible — cameras with no credentials set serve unauthenticated
+streams as before.
+
+When credentials are configured:
+- RSD sends a `401 Unauthorized` with a `WWW-Authenticate: Digest`
+  challenge on the first unauthenticated request.
+- The client retries with a `Authorization: Digest` header; compy
+  verifies the HA1/HA2 hashes and either allows or rejects.
+- Auth state is per-connection, not per-session.
+
+### 9.2 HTTP Basic Authentication (RHD)
+
+RHD uses HTTP Basic auth with base64 decode. Credentials are read
+from the `[http]` section:
+
+```ini
+[http]
+username = admin
+password = secret
+```
+
+On each request, RHD checks for an `Authorization: Basic <b64>` header,
+base64-decodes it, and compares the `user:pass` string against config.
+If credentials are empty, auth is skipped (same backwards-compatible
+logic as RSD).
+
+---
+
+## 10. Dynamic JPEG Buffer Sizing
+
+RHD and ringdump size their read buffers dynamically from
+`ring->data_size` — the full data region size reported in the SHM ring
+header — rather than using a hardcoded constant.
+
+This handles night mode, where high-gain JPEG frames can reach 270KB or
+more. A previously hardcoded 256KB buffer silently truncated these
+frames. The correct approach is to allocate `data_size` bytes (the
+maximum any single frame can occupy) as the read buffer.
+
+The same applies to ringdump: its per-frame copy buffer is sized from
+`rss_ring_get_header(ring)->data_size` so it can always hold the
+largest frame the producer can write.
+
+---
+
+## 11. Verified Platforms
+
+The following SoC and sensor combinations have been confirmed working
+end-to-end (RVD + RAD + RSD; stream plays in ffplay):
+
+| SoC | SDK Generation | Sensor | Status |
+|-----|---------------|--------|--------|
+| T20 | Old SDK | jxf23 | Confirmed working |
+| T31 | New SDK | gc2053 | Confirmed working (primary target) |
+
+T20 uses the gen1 HAL (`hal_gen1.c`). Notably it has no H265 encoder
+and no dynamic bitrate support; RVD falls back to H264 and logs a
+warning if H265 is requested in config. All consumer daemons are
+codec-agnostic and work without modification.
