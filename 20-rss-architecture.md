@@ -920,8 +920,24 @@ invalid CPU numbers.
 ## 8. Configuration
 
 All daemons read from a single INI configuration file (`/etc/raptor.conf`).
-Each daemon reads only the sections it needs. Runtime changes via `raptorctl`
-update the in-memory config; `raptorctl config save` persists to disk.
+Each daemon reads only the sections it needs.
+
+### 8.1 Consistency Model (Cisco-style running/startup)
+
+- **On-disk config** (`/etc/raptor.conf`) is the source of truth at boot.
+- **Running config** is the in-memory copy each daemon holds after startup.
+- `raptorctl rvd set-bitrate 0 3000000` updates the running config only.
+  The on-disk file is unchanged. The change takes effect immediately.
+- `raptorctl config save` tells all daemons to persist their running
+  config to disk (atomic write via temp + fsync + rename).
+- A crash between a runtime change and `config save` loses the change.
+  This is intentional — it allows experimentation without risk.
+- `raptorctl set <section> <key> <value>` writes directly to the file
+  without affecting running daemons. Daemons pick it up on next restart.
+- `raptorctl get <section> <key>` queries the running daemon first,
+  falls back to the on-disk file if the daemon isn't running.
+
+### 8.2 File Format
 
 ```ini
 [sensor]
