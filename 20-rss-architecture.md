@@ -168,14 +168,19 @@ These daemons control hardware peripherals and do not process frame data.
 
 #### RIC -- IR/Day-Night Control
 
-- **Role**: Monitor ISP exposure levels via `isp_get_exposure()`, drive
-  IR-cut filter and IR LED GPIOs based on configurable thresholds, switch
-  ISP running mode between day and night.
-- **HAL dependency**: Calls `isp_get_exposure()`, `isp_set_running_mode()`,
-  `ircut_set()`, `gpio_set()`.
-- **IPC**: Reads exposure data from HAL on a polling interval (typically
-  1s). Receives override commands via Unix control socket (force day,
-  force night, auto).
+- **Role**: Monitor ISP exposure levels, drive IR-cut filter and IR LED
+  GPIOs based on configurable thresholds, switch ISP running mode
+  between day and night.
+- **HAL dependency**: None. RIC queries ISP exposure via RVD's control
+  socket (`get-exposure` command) and sets ISP running mode via
+  `set-running-mode` command. GPIO control is direct sysfs. This avoids
+  the libimp per-process ISP device ownership issue.
+- **GPIO support**: Single GPIO (pin toggles high/low) or dual GPIO
+  (motor driver with 100ms pulse). IR LED enable/disable.
+- **Algorithm**: Total gain threshold with configurable hysteresis
+  debounce (consecutive seconds above/below threshold before switching).
+- **IPC**: Polls RVD control socket every 1s for exposure data. Receives
+  override commands via own control socket (force day, force night, auto).
 - **Why separate**: Day/night switching involves GPIO manipulation, ISP
   mode changes, and hysteresis logic. Isolating it keeps the video daemon
   simple and allows the control algorithm to be replaced or tuned without
@@ -687,7 +692,7 @@ implementation uses `IMPVI_NUM` to route to the correct ISP pipeline).
               / |  \  \
            RSD RHD RMR RSP
 
-     RIC (independent HAL user -- exposure queries only)
+     RIC (queries RVD via control socket -- no direct HAL)
      RMC (independent -- GPIO/UART only)
 ```
 
@@ -698,7 +703,7 @@ Hard dependencies (cannot start without):
 Soft dependencies (start without, attach when available):
 - RSD/RMR/RSP can start before RAD -- they serve video-only until the
   audio ring appears, then add the audio track
-- RIC can start before or after RVD -- it polls the HAL independently
+- RIC requires RVD (queries exposure via control socket) but retries until available
 
 ### 4.3 Init Script
 
