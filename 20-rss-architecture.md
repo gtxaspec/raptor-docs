@@ -269,6 +269,11 @@ typedef struct {
      * Consumers check this on every read to detect producer restart. */
     _Atomic uint32_t  incarnation;
 
+    /* Consumer → producer IDR request. Consumer sets to 1 after
+     * EOVERFLOW to get a keyframe fast. Producer checks and clears
+     * in its encode loop. Avoids control socket round-trip. */
+    _Atomic uint32_t  idr_request;
+
     /* Magic + version for consumer validation.
      * Magic is written last with memory_order_release as a ready flag.
      * Consumer open uses memory_order_acquire. Closes TOCTOU window. */
@@ -383,6 +388,10 @@ int          rss_ring_read(rss_ring_t *ring, uint64_t *read_seq,
 int          rss_ring_wait(rss_ring_t *ring, uint32_t timeout_ms);
 
 const rss_ring_header_t *rss_ring_get_header(rss_ring_t *ring);
+
+/* Consumer → producer fast-path IDR request (avoids control socket) */
+void         rss_ring_request_idr(rss_ring_t *ring);
+int          rss_ring_check_idr(rss_ring_t *ring);  /* returns 1 and clears */
 ```
 
 #### Frame Passing
