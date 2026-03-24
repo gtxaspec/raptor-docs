@@ -26,27 +26,57 @@ ring buffers. Exactly one instance of each runs per camera.
   `init()`, and builds the full video pipeline:
   `sensor -> FS -> OSD -> Enc`.
 - **Outputs**: Two video SHM rings (main, sub), two JPEG SHM rings
-  (jpeg0, jpeg1 — one per video stream for snapshots), and atomic
-  snapshot files (`/tmp/snapshot-0.jpg`, `/tmp/snapshot-1.jpg`).
+  (jpeg0, jpeg1 — one per video stream for snapshots). Snapshots are
+  served directly from JPEG rings by RHD; no disk files are written.
 - **JPEG channels**: Use encoder channels 4+ (SDK convention), registered
   into video encoder groups via buffer sharing. No separate framesource.
-- **OSD interaction**: RVD creates OSD groups and regions, then listens
-  on an eventfd for bitmap updates from ROD. When the eventfd fires,
-  RVD reads the active OSD SHM buffer and calls
-  `osd_update_region_data()` through the HAL.
+- **Thread model**: RVD runs 6 threads, all with 128KB stacks:
+  - **Main thread**: control socket via epoll, handles raptorctl commands.
+  - **4 encoder threads**: one per channel (main H264, sub H264, jpeg0,
+    jpeg1). Each thread independently runs enc_poll -> enc_get_frame ->
+    ring_publish_iov -> enc_release_frame. No locks between encoder
+    threads — each owns its own ring with no shared mutable state.
+  - **OSD update thread**: polls OSD SHM dirty flags and calls
+    UpdateRgnAttrData. Runs in a dedicated thread because SDK OSD calls
+    can interfere with the encoder if invoked on the same thread.
+- **OSD init sequence**: Follows the vendor SDK spec exactly:
+  CreateGroup -> CreateRgn(NULL) -> RegisterRgn -> SetRgnAttr(pData=NULL)
+  -> SetGrpRgnAttr(show=0) -> OSD_Start -> System_Bind(FS->OSD->ENC) ->
+  FS_Enable. Each region gets a unique layer (1-5). Regions are created
+  eagerly with transparent placeholders before the encoder starts.
+  Runtime updates use UpdateRgnAttrData with a heap-allocated local_buf
+  (SDK DMA requires non-SHM memory). Privacy mode uses OSD_REG_COVER at
+  layer 0, toggled via raptorctl.
 - **Why separate**: The video pipeline is the critical path. Isolating
   it means audio glitches, OSD rendering delays, or RTSP client
   disconnects cannot stall frame production.
 
 #### ROD -- OSD Overlay Daemon
 
-- **Role**: Render OSD overlays (timestamp, camera name, custom text,
-  logo) into BGRA bitmaps and publish them to OSD SHM double-buffers.
+- **Role**: Render OSD overlays into BGRA bitmaps and publish them to
+  OSD SHM double-buffers. Manages 5 region types per stream:
+  - **Time** (top-left): timestamp rendered at 1Hz.
+  - **Uptime** (top-right): system uptime, right-aligned.
+  - **Text/Description** (top-center): configurable label, center-aligned.
+  - **Logo** (bottom-right): loaded from a BGRA file (100x30 — T31 SDK
+    limitation with larger bitmaps).
+  - **Privacy** (center): hidden until activated; covers the frame when
+    privacy mode is toggled on via raptorctl.
 - **HAL dependency**: None. ROD does not touch the HAL. It renders
-  bitmaps in userspace using libschrift for text and raw BGRA blitting
-  for logos.
+  bitmaps in userspace using libschrift for font rendering with a glyph
+  cache (O(1) ASCII lookup). The font is loaded once and shared across
+  streams using different SFT scale factors.
+- **Per-stream scaling**: Font size is auto-scaled for the sub stream
+  (proportional to resolution) with a configurable override per stream.
+- **Text alignment**: Left for time, right for uptime, center for
+  description and privacy text.
 - **Outputs**: OSD SHM double-buffer (one per OSD region per stream
-  channel). Notifies RVD via eventfd after each update.
+  channel). Sets dirty flag after each update; RVD's OSD thread polls
+  dirty flags.
+- **Control socket**: Accepts `set-text` command to change the OSD text
+  string at runtime.
+- **Render loop**: 1Hz cycle — renders all dirty regions, updates SHM
+  double-buffers.
 - **Why separate**: Font rendering is CPU-intensive relative to the
   frame path. Isolating it lets ROD run at a lower priority without
   risking frame drops. ROD can also be killed and restarted to change
@@ -92,7 +122,7 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 #### RHD -- HTTP Daemon
 
 - **Role**: HTTP server for JPEG snapshots and MJPEG streaming.
-- **Inputs**: JPEG SHM rings (jpeg0, jpeg1), snapshot files on disk.
+- **Inputs**: JPEG SHM rings (jpeg0, jpeg1). Zero disk I/O.
 - **Dependencies**: librss_ipc (ring consumer), librss_common.
 - **Endpoints**:
   - `/snap.jpg` or `/snap.jpg?stream=0` — main stream snapshot (1920x1080)
@@ -178,8 +208,10 @@ These daemons control hardware peripherals and do not process frame data.
   - `raptorctl rvd set-gop <ch> <length>` -- change GOP length
   - `raptorctl rvd set-fps <ch> <fps>` -- change frame rate
   - `raptorctl rvd set-qp-bounds <ch> <min> <max>` -- change QP range
+  - `raptorctl rvd privacy [on|off]` -- toggle privacy mode (OSD_REG_COVER)
   - `raptorctl rad set-volume <val>` -- change audio input volume
   - `raptorctl rad set-gain <val>` -- change audio input gain
+  - `raptorctl rod set-text <text>` -- change OSD text string
 
 ---
 
@@ -233,7 +265,13 @@ typedef struct {
     uint8_t           level;            /* H.264 level_idc (30,31,40,51...) */
     uint16_t          _reserved;
 
-    /* Magic + version for consumer validation */
+    /* Incarnation counter -- incremented on each ring creation.
+     * Consumers check this on every read to detect producer restart. */
+    _Atomic uint32_t  incarnation;
+
+    /* Magic + version for consumer validation.
+     * Magic is written last with memory_order_release as a ready flag.
+     * Consumer open uses memory_order_acquire. Closes TOCTOU window. */
     uint32_t          magic;            /* RSS_RING_MAGIC */
     uint32_t          version;          /* RSS_RING_VERSION */
     char              pad[0] __attribute__((aligned(64))); /* cache-line align */
@@ -311,17 +349,21 @@ void         rss_ring_set_stream_info(rss_ring_t *ring,
  * rss_ring_open(): attach to an existing ring by name.
  *   Returns NULL if the ring does not exist yet. Consumers should
  *   retry with backoff until the producer creates the ring.
+ *   Uses memory_order_acquire on magic to synchronize with the
+ *   producer's release store -- closes the TOCTOU window.
  *
- * rss_ring_read(): read the next frame for this consumer.
+ * rss_ring_read(): copy-on-read API. Copies frame data into the
+ *   caller's dest_buf, then re-validates the slot sequence number
+ *   to ensure the data was not overwritten during the copy. This
+ *   eliminates the data race inherent in returning SHM pointers.
+ *   Also checks the incarnation counter on every read to detect
+ *   producer restart.
+ *
  *   Each consumer tracks its own read_seq. If read_seq < write_seq,
  *   the consumer has fallen behind and reads the next available slot.
  *   If the consumer has fallen behind far enough that its data was
  *   overwritten, rss_ring_read() returns RSS_EOVERFLOW and advances
  *   read_seq to the oldest valid slot.
- *
- *   The returned pointer is into the SHM data region (zero-copy).
- *   The consumer must finish processing before the producer
- *   overwrites that region. For slow consumers, copy the data.
  *
  * rss_ring_wait(): block until a new frame is available.
  *   Uses futex on write_seq in shared memory. The producer calls
@@ -335,8 +377,8 @@ rss_ring_t *rss_ring_open(const char *name);
 void         rss_ring_close(rss_ring_t *ring);
 
 int          rss_ring_read(rss_ring_t *ring, uint64_t *read_seq,
-                           const uint8_t **data, uint32_t *length,
-                           rss_ring_slot_t *meta);
+                           uint8_t *dest_buf, uint32_t dest_size,
+                           uint32_t *length, rss_ring_slot_t *meta);
 
 int          rss_ring_wait(rss_ring_t *ring, uint32_t timeout_ms);
 
@@ -349,12 +391,15 @@ The data region is a circular byte buffer. The producer writes frame
 payloads sequentially, wrapping around when the end is reached. The
 slot's `data_offset` and `data_length` describe where the payload lives.
 
-`rss_ring_read()` returns a pointer into the mmap'd SHM region.
-Consumers that need the data to remain stable during slow operations
-(e.g. TCP send of a large keyframe) should copy it to a local buffer
-before the producer overwrites the slot. RSD does this with a per-ring
-`frame_buf` — the copy is validated by re-checking the slot sequence
-after the read.
+**Data region wrap**: When a frame does not fit in the remaining space
+at the tail of the data region, the tail is skipped and the frame is
+written at offset 0. Bounded waste: at most one frame size per wrap
+cycle.
+
+`rss_ring_read()` uses copy-on-read semantics: it copies frame data
+into the caller's destination buffer, then re-validates the slot
+sequence number to ensure the data was not overwritten during the copy.
+This eliminates the data race inherent in returning raw SHM pointers.
 
 Consumers that cannot keep up (read_seq falls more than slot_count behind
 write_seq) receive `RSS_EOVERFLOW` and must skip to the next keyframe.
@@ -400,11 +445,6 @@ typedef struct {
     _Atomic int     active_buf;      /* 0 or 1: which buffer RVD should read */
     _Atomic int     dirty;           /* 1 = active_buf has new data */
 
-    /* Notification */
-    int             eventfd;         /* eventfd descriptor (shared via SCM_RIGHTS
-                                        or inherited from parent); ROD writes 1
-                                        after swapping active_buf */
-
     /* Pixel data follows immediately */
     /* uint8_t buf[0][buf_size]; */
     /* uint8_t buf[1][buf_size]; */
@@ -417,15 +457,18 @@ typedef struct {
 2. ROD renders the new bitmap into `buf[inactive]` (libschrift text, logo blit)
 3. ROD atomically stores `active_buf = inactive` (release ordering)
 4. ROD atomically stores `dirty = 1`
-5. ROD writes `(uint64_t)1` to the eventfd
 
-RVD side (in its frame loop, or a dedicated OSD update thread):
+RVD side (dedicated OSD update thread):
 
-1. RVD polls/reads the eventfd (non-blocking or with epoll)
+1. RVD OSD thread polls `dirty` flags for all regions
 2. RVD loads `dirty` with acquire ordering; if 0, skip
 3. RVD loads `active_buf`; reads `buf[active_buf]`
-4. RVD calls `hal->osd_update_region_data(handle, buf[active_buf])`
+4. RVD copies data to a heap-allocated local_buf (SDK DMA requires
+   non-SHM memory), then calls `UpdateRgnAttrData(handle, local_buf)`
 5. RVD stores `dirty = 0`
+
+Consumer mmap uses PROT_READ|PROT_WRITE (needed for atomic_store in
+the dirty flag clear operation).
 
 The double-buffer ensures ROD never writes to the buffer that RVD is
 reading. If ROD produces faster than RVD consumes, the intermediate
@@ -547,7 +590,7 @@ SHM Ring "audio"
 ### 3.3 OSD Data Flow
 
 ```
-ROD                              RVD
+ROD                              RVD (OSD update thread)
  |                                |
  |  render timestamp text         |
  |  into BGRA bitmap              |
@@ -555,13 +598,13 @@ ROD                              RVD
  |         v                      |
  |  write to inactive buf         |
  |  in OSD SHM double-buffer      |
- |         |                      |
- |  swap active_buf (atomic)      |
- |  set dirty = 1                 |
- |  write eventfd ─────────────>  epoll wakeup
- |                                |
- |                         read active_buf
- |                         call osd_update_region_data()
+ |         |                      |  poll dirty flags
+ |  swap active_buf (atomic)      |         |
+ |  set dirty = 1  ─────────────> |  dirty == 1?
+ |                                |         |
+ |                         read active_buf  |
+ |                         copy to local_buf (heap)
+ |                         call UpdateRgnAttrData()
  |                                |
  |                         clear dirty = 0
 ```
@@ -600,8 +643,8 @@ implementation uses `IMPVI_NUM` to route to the correct ISP pipeline).
    - Creates JPEG encoder channels (chn 4, 5) with bufshare, registers into video groups
    - Creates SHM rings (main, sub, jpeg0, jpeg1)
    - Creates control socket
-   - Enters frame loop: enc_poll -> enc_get_frame -> ring_publish_iov -> enc_release_frame
-   - JPEG threads also write /tmp/snapshot-N.jpg atomically
+   - Starts 4 encoder threads (one per channel): enc_poll -> enc_get_frame -> ring_publish_iov -> enc_release_frame
+   - Starts OSD update thread (polls dirty flags, calls UpdateRgnAttrData)
 
 2. RAD starts (optional, independent of RVD)
    - Opens HAL context (shares the HAL -- audio subsystem is independent)
@@ -609,11 +652,12 @@ implementation uses `IMPVI_NUM` to route to the correct ISP pipeline).
    - Creates SHM ring (audio)
    - Enters audio loop: audio_read_frame -> encode -> ring_publish
 
-3. ROD starts (optional, after RVD)
-   - Creates OSD SHM double-buffers
-   - Connects to RVD control socket to register OSD regions
-     (or RVD auto-detects OSD SHM on startup)
-   - Enters render loop: render text -> write inactive buf -> swap -> notify
+3. ROD starts (optional, after RAD, before RSD)
+   - Loads font (libschrift), builds glyph cache
+   - Creates OSD SHM double-buffers (one per region per stream)
+   - Loads logo from BGRA file (100x30)
+   - Creates control socket
+   - Enters 1Hz render loop: render text -> write inactive buf -> swap -> set dirty
 
 4. Consumer daemons start (any order, after RVD)
    - RSD: opens video + audio SHM rings, starts RTSP listener on port 554
@@ -640,7 +684,7 @@ implementation uses `IMPVI_NUM` to route to the correct ISP pipeline).
 
 Hard dependencies (cannot start without):
 - All consumers require RVD (for SHM rings to exist)
-- ROD requires RVD (for OSD region registration and eventfd handoff)
+- ROD requires RVD (for OSD SHM regions to be consumed)
 
 Soft dependencies (start without, attach when available):
 - RSD/RMR/RSP can start before RAD -- they serve video-only until the
@@ -664,7 +708,7 @@ case "$1" in
             usleep 100000
             timeout=$((timeout - 1))
         done
-        # Start remaining daemons
+        # Start remaining daemons (ROD between RAD and RSD)
         start-stop-daemon -S -b -x /usr/bin/rad -- -c /etc/raptor.conf
         start-stop-daemon -S -b -x /usr/bin/rod -- -c /etc/raptor.conf
         start-stop-daemon -S -b -x /usr/bin/rsd -- -c /etc/raptor.conf
@@ -695,7 +739,7 @@ Each daemon is designed to be individually restartable:
 | Daemon | Restart Impact | State Lost | Recovery |
 |--------|---------------|------------|----------|
 | RVD | **Full pipeline restart.** All consumers lose their rings. | All SHM rings destroyed. | Consumers detect stale ring (magic/version mismatch or unlink) and reconnect. |
-| ROD | OSD overlays freeze at last rendered frame. | Rendered bitmap state. | New ROD instance recreates OSD SHM, registers with RVD. OSD resumes. |
+| ROD | OSD overlays freeze at last rendered frame. | Rendered bitmap state, glyph cache. | New ROD instance recreates OSD SHM double-buffers. RVD OSD thread detects new dirty flags. OSD resumes. |
 | RAD | Audio stream drops. | Audio encoder state. | New RAD instance creates audio ring. Consumers detect new ring and reattach. |
 | RSD | RTSP clients disconnect. | Client sessions, RTP sequence numbers. | Clients reconnect. New RSD opens existing rings. |
 | RMR | Current recording file may be truncated. | Muxer state, unflushed data. | New RMR starts a new file. Previous file recoverable if moov was written. |
@@ -713,8 +757,8 @@ RVD crashing is the worst case because it owns the HAL:
 4. RVD re-initializes HAL, creates new SHM rings
 5. Consumers detect ring recreation (SHM name unlinked and recreated,
    or magic/version/write_seq reset) and reopen
-6. ROD detects RVD restart via control socket disconnect, re-registers
-   OSD regions
+6. ROD detects RVD restart (OSD SHM recreated), reconnects and
+   re-renders OSD regions
 
 Total recovery time: ~2-3 seconds (HAL init ~1s, pipeline setup ~0.5s,
 first frame ~0.5s).
@@ -725,7 +769,8 @@ If a producer crashes without unlinking its SHM:
 - SHM objects persist in `/dev/shm/` until explicitly unlinked
 - The new producer instance calls `shm_unlink()` before `shm_open(O_CREAT)`
 - Consumers holding old mmaps see stale data; they detect this via
-  sequence number gaps or magic mismatch after reopen
+  incarnation counter mismatch, sequence number gaps, or magic mismatch
+  after reopen
 
 ---
 
@@ -740,11 +785,12 @@ Component                         RAM (KB)    Notes
 ───────────────────────────────────────────────────────
 Kernel + drivers                  ~12,000     includes ISP firmware
 libimp.so (loaded by RVD/RAD)      ~2,000     vendor SDK shared library
-RVD daemon                         ~7,072     4 encoder threads (128KB stacks)
+RVD daemon                         ~7,072     6 threads (128KB stacks)
   SHM ring "main" (1080p H264)     ~4,096     32 slots, 4MB data
   SHM ring "sub"  (360p H264)      ~1,024     32 slots, 1MB data
   SHM ring "jpeg0"                    512     4 slots, 512KB data
   SHM ring "jpeg1"                    512     4 slots, 512KB data
+ROD daemon                           ~512     libschrift + glyph cache + SHM
 RAD daemon                         ~1,040     code + audio buffers
   SHM ring "audio"                    ~256     32 slots
 RSD daemon                         ~6,076     compy + per-client state
@@ -935,10 +981,25 @@ port = 8080
 [osd]
 enabled = true
 font = /usr/share/fonts/default.ttf
-font_size = 24
+font_size = 24             # main stream; sub stream auto-scaled
+stream1_font_size = 12     # optional per-stream override
 timestamp = true
 timestamp_fmt = %Y-%m-%d %H:%M:%S
 label = Camera
+logo = /usr/share/raptor/logo.bgra   # 100x30 BGRA file
+privacy_color = 0xFF000000            # BGRA black
+
+# Per-stream region positions (named_position or x,y coords)
+stream0_time_pos = top_left
+stream0_uptime_pos = top_right
+stream0_desc_pos = top_center
+stream0_logo_pos = bottom_right
+stream0_privacy_pos = center
+stream1_time_pos = top_left
+stream1_uptime_pos = top_right
+stream1_desc_pos = top_center
+stream1_logo_pos = bottom_right
+stream1_privacy_pos = center
 
 [ircut]
 enabled = true

@@ -74,7 +74,12 @@ raptor/
 │   │   └── rsd_ring_reader.c       # video + audio ring reader threads
 │   ├── rhd/
 │   │   ├── Makefile
-│   │   └── rhd_main.c              # HTTP server: /snap.jpg, /mjpeg (dual-stack IPv6)
+│   │   └── rhd_main.c              # HTTP server: /snap.jpg (from JPEG ring), /mjpeg
+│   ├── rod/
+│   │   ├── Makefile
+│   │   ├── rod.h                   # state structs, region roles, glyph cache
+│   │   ├── rod_main.c             # OSD daemon: config, SHM, 1Hz render loop
+│   │   └── rod_render.c           # libschrift font rendering, BGRA compositing
 │   ├── rmr/
 │   │   ├── CMakeLists.txt
 │   │   └── src/
