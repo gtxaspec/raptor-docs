@@ -25,6 +25,11 @@ ring buffers. Exactly one instance of each runs per camera.
 - **HAL dependency**: RVD is the HAL owner. It calls `rss_hal_create()`,
   `init()`, and builds the full video pipeline:
   `sensor -> FS -> OSD -> Enc`.
+- **Sensor auto-detect**: Reads sensor name, i2c_addr, resolution, and
+  max FPS from `/proc/jz/sensor/` when not set in config. Default config
+  ships with `[sensor]` section commented out — works on any device.
+- **Startup info**: Logs LIBIMP version, SYSUTILS version, and CPU info
+  (e.g., "T31-AL") via HAL `rss_hal_get_imp_version()` etc.
 - **Outputs**: Two video SHM rings (main, sub), two JPEG SHM rings
   (jpeg0, jpeg1 — one per video stream for snapshots). Snapshots are
   served directly from JPEG rings by RHD; no disk files are written.
@@ -85,14 +90,28 @@ ring buffers. Exactly one instance of each runs per camera.
 
 #### RAD -- Audio Daemon
 
-- **Role**: Initialize audio input through the HAL, read PCM frames,
-  encode (PCMU/G.711 mu-law, PCMA/G.711 A-law, or L16 uncompressed),
-  and publish encoded audio frames to an audio SHM ring buffer.
+- **Role**: Initialize audio input and output through the HAL, read PCM
+  frames, encode (PCMU, PCMA, L16, AAC, or Opus), publish to audio SHM
+  ring, and play back received audio through the speaker.
 - **HAL dependency**: Calls `audio_init()`, `audio_read_frame()`,
-  `audio_release_frame()`, and optionally `audio_register_encoder()`
-  through the HAL. RAD does not call `IMP_AI_ReleaseFrame` directly;
-  all SDK access goes through the HAL vtable.
-- **Outputs**: One SHM ring (audio).
+  `audio_release_frame()` for input. Calls `ao_init()`, `ao_send_frame()`
+  for output. Optionally enables NS/HPF/AGC audio effects via HAL
+  (`audio_enable_ns()`, `audio_enable_hpf()`, `audio_enable_agc()`).
+  All SDK access goes through the HAL vtable.
+- **Codecs**: PCMU/PCMA (G.711), L16 (uncompressed PCM), AAC-LC (via
+  faac, compile with `AAC=1`), Opus (via libopus, compile with `OPUS=1`).
+- **Audio effects**: Noise suppression, high-pass filter, and AGC via
+  `libaudioProcess.so`. Compile-time flag `AUDIO_EFFECTS=1`. Runtime
+  toggle via `raptorctl rad set-ns/set-hpf/set-agc`.
+- **Audio output**: When `ao_enabled=true`, RAD initializes the AO device
+  and spawns an AO playback thread. The thread reads PCM16 from a
+  "speaker" SHM ring (created by `rac play` or RSD backchannel) and
+  calls `ao_send_frame()`. Auto-reconnects when the speaker ring is
+  recreated by a new client.
+- **Outputs**: Audio SHM ring (input/encoding path).
+- **Inputs**: Speaker SHM ring (output/playback path).
+- **Thread model**: Main thread (AI read loop + control socket), AO
+  playback thread (speaker ring consumer).
 - **Why separate**: Audio runs on a fixed-period schedule (typically
   20ms frame intervals). Isolating it from video prevents encoder
   stalls from causing audio discontinuities and vice versa. RAD can
@@ -106,13 +125,24 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 #### RSD -- RTSP Server
 
 - **Role**: RTSP/RTP server. Reads video and audio SHM rings, packetizes
-  into RTP, serves to clients via RTSP.
+  into RTP, serves to clients via RTSP. Receives backchannel audio from
+  clients for two-way audio.
 - **Inputs**: Main video ring, sub video ring, audio ring.
+- **Outputs**: Speaker SHM ring (backchannel audio → RAD AO thread).
 - **Dependencies**: librss_ipc (SHM ring consumer API), compy (RTSP
   protocol library). Epoll-based event loop. No HAL dependency.
 - **Protocol**: Standard RTSP 1.0 (DESCRIBE/SETUP/PLAY/TEARDOWN). Two
   mount points: `/stream0` (main) and `/stream1` (sub). Audio track
   included when RAD is running. TCP interleaved and UDP transport.
+- **Backchannel**: SDP advertises a `sendonly` PCMU/8000 backchannel
+  track (`a=control:backchannel`). Clients SETUP the backchannel track,
+  then send RTP audio via TCP interleaved framing. RSD decodes PCMU to
+  PCM16, upsamples 8→16kHz, and writes to the speaker SHM ring. RAD's
+  AO thread plays it through the hardware speaker.
+- **Client listing**: `raptorctl rsd clients` shows connected clients
+  with IP, port, stream index, transport, and video/audio/backchannel state.
+- **Authentication**: Digest auth (RFC 2617) via compy, credentials from
+  `[rtsp]` config section. Empty = no auth.
 - **Network**: Dual-stack IPv6 (AF_INET6 with IPV6_V6ONLY=0), port 554.
   Per-client RTP timestamp offsets ensure each client sees timestamps
   starting from zero on connect (set on first keyframe delivery).
@@ -216,7 +246,7 @@ These daemons control hardware peripherals and do not process frame data.
 - **Why separate**: Motor control involves blocking sequences (step
   delays, homing routines) that must not stall any other daemon.
 
-### 1.4 CLI Tool
+### 1.4 CLI Tools
 
 #### raptorctl
 
@@ -224,20 +254,49 @@ These daemons control hardware peripherals and do not process frame data.
 - **Communication**: Connects to each daemon's Unix control socket.
 - **Commands**:
   - `raptorctl status` -- show running daemons (PID or stopped)
-  - `raptorctl get <section> <key>` -- query live value from daemon, fall back to file
-  - `raptorctl set <section> <key> <value>` -- write value to config file
-  - `raptorctl config save` -- tell all daemons to persist running config to disk
+  - `raptorctl get <section> <key>` -- query live value from daemon
+  - `raptorctl set <section> <key> <value>` -- write value to config
+  - `raptorctl config save` -- persist running config to disk
   - `raptorctl <daemon> status` -- show daemon-specific details
   - `raptorctl <daemon> config` -- show daemon's running config
-  - `raptorctl rvd request-idr [channel]` -- request an IDR frame
+  - `raptorctl <daemon> clients` -- list connected clients (rsd)
+  - `raptorctl rvd request-idr [channel]` -- request IDR frame
   - `raptorctl rvd set-bitrate <ch> <bps>` -- change encoder bitrate
   - `raptorctl rvd set-gop <ch> <length>` -- change GOP length
   - `raptorctl rvd set-fps <ch> <fps>` -- change frame rate
   - `raptorctl rvd set-qp-bounds <ch> <min> <max>` -- change QP range
-  - `raptorctl rvd privacy [on|off]` -- toggle privacy mode (OSD_REG_COVER)
+  - `raptorctl rvd privacy [on|off]` -- toggle privacy mode
   - `raptorctl rad set-volume <val>` -- change audio input volume
   - `raptorctl rad set-gain <val>` -- change audio input gain
+  - `raptorctl rad set-ns <0|1> [level]` -- noise suppression
+  - `raptorctl rad set-hpf <0|1>` -- high-pass filter
+  - `raptorctl rad set-agc <0|1> [target] [compression]` -- AGC
   - `raptorctl rod set-text <text>` -- change OSD text string
+  - `raptorctl ric mode <auto|day|night>` -- set day/night mode
+
+#### rac -- Raptor Audio Client
+
+- **Role**: CLI tool for audio playback and recording.
+- **Commands**:
+  - `rac play <file|->` -- play audio to speaker (PCM16, MP3, AAC, Opus)
+  - `rac record <file|-> [-d sec]` -- record mic to PCM16 LE file
+  - `rac status` -- show audio daemon status
+  - `rac ao-volume <val>` -- set speaker volume
+  - `rac ao-gain <val>` -- set speaker gain
+- **Playback codecs**: Raw PCM16 LE (passthrough), MP3 (libhelix-mp3,
+  compile with `MP3=1`), AAC/ADTS (libhelix-aac, `AAC=1`), Opus/Ogg
+  (libopus, `OPUS=1`). Auto-detects format from file extension or magic
+  bytes. Stereo downmixed to mono. Sample rate resampling via linear
+  interpolation (MP3/AAC) or native Opus decoder rate selection.
+- **Speaker path**: Creates a "speaker" SHM ring, writes PCM16 frames.
+  RAD's AO playback thread reads and plays via `ao_send_frame()`.
+- **Recording**: Reads from the audio SHM ring, decodes G.711/L16 to
+  PCM16 LE. Duration limit with `-d` flag.
+
+#### ringdump
+
+- **Role**: SHM ring buffer inspector for debugging.
+- **Usage**: `ringdump <ring> [-f] [-d] [-n N]`
 
 ---
 
