@@ -134,6 +134,10 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Protocol**: Standard RTSP 1.0 (DESCRIBE/SETUP/PLAY/TEARDOWN). Two
   mount points: `/stream0` (main) and `/stream1` (sub). Audio track
   included when RAD is running. TCP interleaved and UDP transport.
+- **Audio codecs over RTSP**: All RAD codecs are supported. SDP and RTP
+  packetization are codec-aware: PCMU/PCMA use static payload types,
+  AAC uses RFC 3640 (mpeg4-generic with AU header section), Opus uses
+  RFC 7587 (48kHz RTP clock), L16 uses dynamic payload type with rtpmap.
 - **Backchannel**: SDP advertises a `sendonly` PCMU/8000 backchannel
   track (`a=control:backchannel`). Clients SETUP the backchannel track,
   then send RTP audio via TCP interleaved framing. RSD decodes PCMU to
@@ -171,6 +175,9 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   frames from SHM rings and writes fMP4 segments to SD card (or any
   writable path). Each `moof+mdat` box pair is self-contained, so a
   crash or power loss cannot corrupt already-written segments.
+- **Audio codecs**: All RAD codecs — PCMU, PCMA, L16 (PCM fourcc),
+  AAC-LC (mp4a + esds), Opus (Opus + dOps). Codec auto-detected from
+  the audio ring header.
 - **Inputs**: Main video ring (or sub), audio ring.
 - **Muxer**: Own lightweight fMP4 muxer — zero external dependencies. No
   libavformat required. The muxer is stateless per-segment; on rotation
@@ -671,7 +678,7 @@ PCM 16-bit @ 8/16kHz
 [Optional: NS, HPF, AGC processing in HAL]
   |
   v
-Audio Encoder (PCMU / PCMA / L16)
+Audio Encoder (PCMU / PCMA / L16 / AAC / Opus)
   |
   v
 SHM Ring "audio"
@@ -1095,7 +1102,8 @@ sub_data_mb = 1
 [audio]
 enabled = true
 sample_rate = 16000
-codec = l16            # pcmu, pcma, l16
+codec = aac            # pcmu, pcma, l16, aac, opus
+# bitrate = 32000      # for aac/opus (bits per second, max 256000)
 volume = 80
 gain = 25
 
