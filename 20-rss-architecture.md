@@ -183,13 +183,12 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   libavformat required. The muxer is stateless per-segment; on rotation
   it closes the current file and opens a new one without touching the
   previous segment.
-- **Thread model**: Two threads — a **reader thread** (ring consumer →
-  muxer → write buffer) and a **writer thread** (drains an SPSC circular
-  buffer → `write(fd)`). The SPSC buffer decouples the real-time ring
-  reader from SD card write stalls.
-- **Crash safety**: Each `moof+mdat` pair is flushed before the reader
-  advances. A crash between segments leaves all prior segments intact
-  and playable.
+- **Thread model**: Single-threaded. The main loop reads rings, feeds the
+  muxer, and writes directly to disk. fMP4 fragments are small enough
+  that SD card writes complete without dropping frames.
+- **Crash safety**: Each `moof+mdat` pair is self-contained and written
+  directly to the file descriptor. A crash between fragments leaves all
+  prior fragments intact and playable.
 - **Timestamps**: Video DTS is derived from ring slot timestamps. Audio
   DTS is counter-based (sample count / sample rate), avoiding clock skew
   between ring producers.

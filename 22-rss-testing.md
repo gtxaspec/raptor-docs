@@ -828,8 +828,8 @@ and zero UBSan errors reported by ASan at exit.
 
 RMR is included in the `build-asan.sh` suite. Its test harness uses
 mock SHM rings pre-populated with continuous H.264 frames plus audio
-frames (via `tests/create_rings.c`), so the reader thread exercises the
-full ring→muxer→SPSC→write path without requiring RVD or RAD.
+frames (via `tests/create_rings.c`), so the main loop exercises the
+full ring→muxer→write path without requiring RVD or RAD.
 
 **Segment rotation**: tested by setting `segment_minutes = 1` in the
 test config. The muxer closes and reopens files correctly across
@@ -840,13 +840,11 @@ source found and fixed the following issues before release:
 
 | Severity | Issue | Fix |
 |----------|-------|-----|
-| CRITICAL | `segment_fd` accessed from both reader and writer threads without synchronization | Protected with mutex; writer thread owns fd, reader signals close via flag |
-| CRITICAL | SPSC ring consumer had a dual-consumer path reachable under error recovery | Enforced single-consumer invariant; error recovery restarts reader thread instead of retrying inline |
+| CRITICAL | SPSC circular write buffer corrupted NAL data at wrap boundaries | Removed SPSC wbuf entirely; muxer writes directly to fd (single-threaded) |
 | CRITICAL | `malloc()` return unchecked in muxer box-building paths | All allocations now checked; fatal-log + clean shutdown on OOM |
 | HIGH | Integer overflow in box size calculation for large frames (>16MB) | Added overflow check before size accumulation |
 | HIGH | Audio DTS counter not reset on segment rotation | Counter now resets to 0 at each new segment |
-| HIGH | SPSC write-ahead index stored as `int` (wraps at 2GB write) | Changed to `uint64_t` |
-| HIGH | Unchecked `write()` return in writer thread (partial writes on full disk) | Writer now retries on `EINTR`, logs and stops recording on `ENOSPC` |
+| HIGH | Unchecked `write()` return on full disk | Direct write retries on `EINTR`, logs and stops recording on `ENOSPC` |
 | HIGH | Storage cleanup walked directory with `readdir()` on the recording path without re-opening on each rotation | `opendir`/`closedir` now called per-cleanup pass |
 | HIGH | Segment file path buffer (256 bytes) could overflow with long base paths | Buffer increased to `PATH_MAX`; truncation now caught |
 
