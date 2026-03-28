@@ -194,7 +194,19 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   Enabled when `tls = true` in `[rtsp]` config with `tls_cert` and
   `tls_key` paths. Uses `tls_port` (default falls back to `port`).
   Single-socket design — either plain RTSP or RTSPS, not both.
-  All TLS code gated behind `#ifdef COMPY_HAS_TLS`.
+  All TLS code gated behind `#ifdef COMPY_HAS_TLS`. If `tls = true`
+  but cert/key fails to load, RSD exits with a fatal error (no silent
+  fallback to plain RTSP).
+- **Connection hardening**:
+  - Idle timeout (`RSD_IDLE_TIMEOUT_SEC = 60`): clients that have not
+    completed RTSP setup and are not actively streaming are disconnected
+    after 60 seconds of inactivity. Prevents slowloris-style DoS.
+  - Buffer overflow protection: recv buffer is 4KB; connections that fill
+    it without completing a request are disconnected (not reset).
+  - Max clients (`RSD_MAX_CLIENTS = 8`): enforced under mutex lock to
+    prevent race conditions on concurrent accepts.
+  - Ring header validation: division-by-zero guard on `slot_count` before
+    computing frame buffer sizes.
 - **Early exit**: When `enabled = false` in `[rtsp]` config, RSD logs
   "RTSP disabled in config" and exits cleanly without opening any
   sockets or rings. All consumer daemons follow this pattern.
@@ -221,6 +233,13 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   MJPEG frame writes use `poll()` to retry on `EAGAIN` (up to 5 seconds)
   so large main-stream JPEGs complete without dropping the client, while
   truly stalled clients are still disconnected.
+- **Request hardening**:
+  - Header-line-anchored auth parsing: `Authorization: Basic` is matched
+    only at the start of a header line, not inside request bodies.
+  - Constant-time credential comparison (`rss_secure_compare`) prevents
+    timing side-channel attacks on password checks.
+  - Oversized requests (>4KB) receive `414 URI Too Long` and are closed.
+  - GET-only: all other methods return `405 Method Not Allowed`.
 - **Why separate**: HTTP and RTSP are different protocols with different
   connection lifecycles. RHD can serve snapshots even if RSD is down.
 
@@ -1376,7 +1395,10 @@ password = secret
 ```
 
 On each request, RHD checks for an `Authorization: Basic <b64>` header,
-base64-decodes it, and compares the `user:pass` string against config.
+base64-decodes it, and compares the `user:pass` string against config
+using `rss_secure_compare()` (constant-time comparison to prevent timing
+side-channel attacks). The `Authorization` header is matched only at
+line boundaries to prevent false matches inside request bodies.
 If credentials are empty, auth is skipped (same backwards-compatible
 logic as RSD).
 
