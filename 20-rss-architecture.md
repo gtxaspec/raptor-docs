@@ -393,6 +393,12 @@ These daemons control hardware peripherals and do not process frame data.
   - `raptorctl rad set-agc <0|1> [target] [compression]` -- AGC
   - `raptorctl rod set-text <text>` -- change OSD text string
   - `raptorctl ric mode <auto|day|night>` -- set day/night mode
+  - `raptorctl memory` -- show per-daemon memory usage (private/shared/RSS).
+    Private = memory unique to that daemon. Shared = SHM rings and shared
+    libraries mapped by multiple daemons. RSS = sum (overcounts shared pages).
+    The "Actual memory" total counts SHM once.
+  - `raptorctl test-motion [sec]` -- trigger a motion clip (default 10s,
+    bypasses RMD cooldown). Sends start/stop directly to RMR.
 
 #### rac -- Raptor Audio Client
 
