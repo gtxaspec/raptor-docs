@@ -53,15 +53,35 @@ ring buffers. Exactly one instance of each runs per camera.
   served directly from JPEG rings by RHD; no disk files are written.
 - **JPEG channels**: Use encoder channels 4+ (SDK convention), registered
   into video encoder groups via buffer sharing. No separate framesource.
-- **Thread model**: RVD runs 6 threads, all with 128KB stacks:
+- **IVS integration**: When `[motion] enabled = true` and a sub-stream
+  is active, RVD creates an IVS group bound into the sub-stream pipeline
+  chain (`FS(1) → IVS(0) → [OSD(1) →] ENC(1)`). The IVS group is
+  created before the pipeline bind, and the algo interface/channel/start
+  happen before FS enable (SDK requirement). A dedicated IVS poll thread
+  stores motion results atomically for RMD to query via control socket.
+- **Pipeline bind chain**: The pipeline stages (FS, IVS, OSD, ENC) are
+  built as an array per stream and bound in a loop. Unbind walks the
+  stored chain in reverse. Adding future pipeline stages is a single
+  array insert — no combinatorial if/else.
+- **Code structure**: RVD is split into 6 source files:
+  - `rvd_main.c` — entry point, daemonization
+  - `rvd_pipeline.c` — HAL pipeline setup/teardown, bind chain
+  - `rvd_frame_loop.c` — encoder thread management
+  - `rvd_ctrl.c` — control socket handler (encoder, ISP, IVS, config)
+  - `rvd_osd.c` — OSD region lifecycle and bitmap updates
+  - `rvd_ivs.c` — IVS group/channel/algo lifecycle, poll thread
+- **Thread model**: RVD runs 6-7 threads:
   - **Main thread**: control socket via epoll, handles raptorctl commands.
-  - **4 encoder threads**: one per channel (main H264, sub H264, jpeg0,
-    jpeg1). Each thread independently runs enc_poll -> enc_get_frame ->
-    ring_publish_iov -> enc_release_frame. No locks between encoder
+  - **4 encoder threads** (128KB stacks): one per channel (main H264,
+    sub H264, jpeg0, jpeg1). Each thread independently runs
+    enc_poll -> enc_get_frame -> ring_publish_iov -> enc_release_frame. No locks between encoder
     threads — each owns its own ring with no shared mutable state.
-  - **OSD update thread**: polls OSD SHM dirty flags and calls
-    UpdateRgnAttrData. Runs in a dedicated thread because SDK OSD calls
-    can interfere with the encoder if invoked on the same thread.
+  - **OSD update thread** (128KB stack): polls OSD SHM dirty flags and
+    calls UpdateRgnAttrData. Runs in a dedicated thread because SDK OSD
+    calls can interfere with the encoder if invoked on the same thread.
+  - **IVS poll thread** (64KB stack, optional): runs when `[motion]`
+    enabled. Calls `ivs_poll_result` → `ivs_get_result` → stores
+    motion state atomically. RMD reads via `ivs-status` control command.
 - **OSD init sequence**: Follows the vendor SDK spec exactly:
   CreateGroup -> CreateRgn(NULL) -> RegisterRgn -> SetRgnAttr(pData=NULL)
   -> SetGrpRgnAttr(show=0) -> OSD_Start -> System_Bind(FS->OSD->ENC) ->
@@ -170,6 +190,11 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   with IP, port, stream index, transport, and video/audio/backchannel state.
 - **Authentication**: Digest auth (RFC 2617) via compy, credentials from
   `[rtsp]` config section. Empty = no auth.
+- **RTSPS**: TLS-encrypted RTSP via mbedTLS (compile with `TLS=1`).
+  Enabled when `tls = true` in `[rtsp]` config with `tls_cert` and
+  `tls_key` paths. Uses `tls_port` (default falls back to `port`).
+  Single-socket design — either plain RTSP or RTSPS, not both.
+  All TLS code gated behind `#ifdef COMPY_HAS_TLS`.
 - **Early exit**: When `enabled = false` in `[rtsp]` config, RSD logs
   "RTSP disabled in config" and exits cleanly without opening any
   sockets or rings. All consumer daemons follow this pattern.
@@ -192,9 +217,10 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   - `/mjpeg` — MJPEG stream (multipart/x-mixed-replace from jpeg0 ring)
   - `/` — simple HTML index page with links and embedded MJPEG preview
 - **Network**: Dual-stack IPv6 (AF_INET6 with IPV6_V6ONLY=0), port 8080.
-  Client sockets are set non-blocking (`O_NONBLOCK` via `fcntl`) so that
-  a slow MJPEG client with a full TCP window cannot stall the event loop
-  or block frame delivery to other clients.
+  Client sockets are set non-blocking (`O_NONBLOCK` via `fcntl`).
+  MJPEG frame writes use `poll()` to retry on `EAGAIN` (up to 5 seconds)
+  so large main-stream JPEGs complete without dropping the client, while
+  truly stalled clients are still disconnected.
 - **Why separate**: HTTP and RTSP are different protocols with different
   connection lifecycles. RHD can serve snapshots even if RSD is down.
 
@@ -278,6 +304,41 @@ These daemons control hardware peripherals and do not process frame data.
   mode changes, and hysteresis logic. Isolating it keeps the video daemon
   simple and allows the control algorithm to be replaced or tuned without
   restarting video.
+
+#### RMD -- Motion Detection Daemon
+
+- **Role**: Motion detection policy daemon. Queries RVD for IVS
+  (Intelligent Video Subsystem) hardware motion results, manages a
+  state machine (idle/active/cooldown), and triggers actions on
+  motion events.
+- **IVS architecture**: RVD owns the ISP pipeline and runs the IVS
+  hardware — it creates an IVS group bound to the sub-stream
+  FrameSource (`FS(1) → IVS(0) → ENC(1)`) and polls results in a
+  dedicated thread. RMD queries the results via RVD's control socket
+  (`ivs-status` command). This follows the same split as RVD/RIC:
+  RVD does hardware plumbing, RMD owns the detection policy.
+- **Grid-based ROI**: Default 4x4 grid (16 zones, configurable via
+  `grid = NxN`). Each zone reports motion independently. Explicit ROI
+  regions can override the grid via `roi_count` + `roi0..roiN` config.
+  Sensitivity is per-zone (0-4 for move algo, 0-3 for base_move).
+- **State machine**:
+  - IDLE → ACTIVE: motion detected → start recording, assert GPIO
+  - ACTIVE → ACTIVE: continued motion (reset cooldown timer)
+  - ACTIVE → COOLDOWN: motion stops → start cooldown timer
+  - COOLDOWN → IDLE: cooldown expired → stop recording, deassert GPIO
+  - COOLDOWN → ACTIVE: motion resumes → cancel cooldown
+- **Actions**:
+  - Recording: sends `start`/`stop` commands to RMR via control socket
+  - GPIO: sysfs export/set for alarm output or LED
+  - Configurable `record_post_sec` to continue recording after motion stops
+- **HAL dependency**: None. Pure IPC consumer (same as RIC, RSD, RMR).
+- **Dependencies**: librss_ipc (control socket client), librss_common.
+- **IPC**: Polls RVD `ivs-status` every `poll_interval_ms` (default 500ms).
+  Own control socket at `/var/run/rss/rmd.sock` for status and sensitivity
+  relay to RVD.
+- **Why separate**: Motion detection policy (cooldown, actions, sensitivity)
+  is independent of the IVS hardware pipeline. RMD can be restarted or
+  reconfigured without interrupting video streaming or IVS processing.
 
 #### RMC -- Motor Control
 
@@ -852,9 +913,11 @@ case "$1" in
         start-stop-daemon -S -b -x /usr/bin/rhd -- -c /etc/raptor.conf
         start-stop-daemon -S -b -x /usr/bin/rmr -- -c /etc/raptor.conf
         start-stop-daemon -S -b -x /usr/bin/ric -- -c /etc/raptor.conf
+        start-stop-daemon -S -b -x /usr/bin/rmd -- -c /etc/raptor.conf
         ;;
     stop)
         # Stop consumers first, then producers, then HAL owner
+        start-stop-daemon -K -x /usr/bin/rmd
         start-stop-daemon -K -x /usr/bin/rmr
         start-stop-daemon -K -x /usr/bin/rsd
         start-stop-daemon -K -x /usr/bin/rhd
@@ -1172,6 +1235,10 @@ max_clients = 4
 # endpoint_sub = ch1    # custom exclusive endpoint (disables defaults)
 # username = admin       # digest auth (both required to enable)
 # password = secret
+# tls = false            # enable RTSPS (requires cert + key)
+# tls_cert = /etc/ssl/certs/rtsp.crt
+# tls_key = /etc/ssl/private/rtsp.key
+# tls_port = 322         # RTSPS port (defaults to port if unset)
 
 [http]
 enabled = true
@@ -1185,7 +1252,9 @@ stream1_font_size = 12     # optional per-stream override
 timestamp = true
 timestamp_fmt = %Y-%m-%d %H:%M:%S
 label = Camera
-logo = /usr/share/raptor/logo.bgra   # 100x30 BGRA file
+# logo = /usr/share/images/thingino_100x30.bgra  # BGRA file (omit to disable)
+# logo_width = 100
+# logo_height = 30
 privacy_color = 0xFF000000            # BGRA black
 
 # Per-stream region positions (named_position or x,y coords)
@@ -1208,6 +1277,21 @@ night_threshold = 40000
 hysteresis_sec = 5
 gpio_ircut = 25
 gpio_irled = 26
+
+[motion]
+enabled = false
+algorithm = move              # move (ROI, sensitivity 0-4) or base_move (global, 0-3)
+sensitivity = 3
+grid = 4x4                    # auto-generate ROI grid (default 4x4 = 16 zones)
+cooldown_sec = 10
+poll_interval_ms = 500
+record = true                 # start RMR recording on motion
+record_post_sec = 30          # continue recording after motion stops
+# gpio_pin = -1               # GPIO to assert on motion
+# Explicit ROI override (disables grid):
+# roi_count = 2
+# roi0 = 0,0,319,179
+# roi1 = 320,180,639,359
 
 [log]
 level = info           # fatal, error, warn, info, debug, trace
@@ -1292,6 +1376,7 @@ fMP4 recording verified):
 | T23DL | Old SDK (XB1) | jxh63p | 32MB | Confirmed working (720p, auto-ring sizing) |
 | T30 | Old SDK (XB1) | sc1235 | 128MB | Confirmed working (H.265 + H.264) |
 | T31 | New SDK (XB2) | gc2053 | 128MB | Confirmed working (primary target) |
+| T40 | IMPVI SDK (XB2) | imx307 | 128MB | Confirmed build (AWB via SetAwbAttr) |
 | T41 | IMPVI SDK (XB2) | gc4023 | 128MB | Confirmed working (2560x1440, dual-stream) |
 
 T20 uses the gen1 HAL (`hal_gen1.c`). Notably it has no H265 encoder
