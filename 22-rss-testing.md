@@ -147,8 +147,8 @@ Validation checklist:
 mount /dev/mmcblk0p1 /mnt/sd
 
 # Start RVD and RMR
-rvd -c /etc/raptor.json &
-rmr -c /etc/raptor.json &
+rvd -c /etc/raptor.conf &
+rmr -c /etc/raptor.conf &
 
 # Start recording
 raptorctl rmr start
@@ -172,6 +172,47 @@ Validation checklist:
 ```sh
 # Verify recording integrity
 ffprobe -show_format -show_streams /mnt/sd/recordings/*.mp4
+```
+
+### 1.6 Motion Clip Test: RMR + Pre-Buffer
+
+**Goal**: Verify motion-triggered clip recording with pre-buffer.
+
+Requires `[recording] mode = motion` or `mode = both`, and
+`[motion] enabled = true` in raptor.conf.
+
+```sh
+# Trigger a 15-second motion clip (bypasses RMD, sends directly to RMR)
+raptorctl test-motion 15
+
+# Check clip output
+ls -la /mnt/mmcblk0p1/raptor/clips/
+ffprobe /mnt/mmcblk0p1/raptor/clips/$(date +%Y-%m-%d)/*.mp4
+```
+
+With `prebuffer_sec = 5` and `test-motion 15`, expect a ~21 second clip
+(~6s pre-buffer from keyframe alignment + 15s live).
+
+Validation checklist:
+- [ ] Clip file created in `clips/` subdirectory
+- [ ] Clip starts before the motion trigger (pre-buffer working)
+- [ ] `ffprobe` reported duration matches actual playback duration
+- [ ] Video plays for the full clip duration (no early freeze)
+- [ ] Audio plays in sync with video for the full duration
+- [ ] Audio frame count matches video duration (no A/V desync)
+- [ ] Clip rotation works when motion exceeds `clip_length_sec`
+- [ ] `mode=both`: continuous recording unaffected by clip start/stop
+- [ ] `mode=motion`: no recording when idle, clip only on trigger
+- [ ] `raptorctl rmr status` shows clip state
+
+```sh
+# Check RMR status during/after clip
+raptorctl rmr status
+
+# Verify pre-buffer in logs
+cat /tmp/rmr.log | grep pre-buffer
+# Expected: "pre-buffer: replayed N video frames (X.Xs)"
+#           "pre-buffer: replayed M audio frames (target M, X.Xs)"
 ```
 
 ### 1.6 Full Stack Test

@@ -254,9 +254,26 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Timestamps**: Video DTS is derived from ring slot timestamps. Audio
   DTS is counter-based (sample count / sample rate), avoiding clock skew
   between ring producers.
+- **Recording modes**:
+  - `continuous`: always recording, segments rotated by `segment_minutes`.
+  - `motion`: records only when triggered (via RMD or `raptorctl test-motion`).
+  - `both`: continuous recording plus separate motion clips in `clips/` subdir.
+- **Pre-buffer**: Process-local circular buffer stores the last N seconds
+  (configurable `prebuffer_sec`, max 5) of AVCC video frames and raw audio
+  frames. When motion triggers, the pre-buffer is replayed into the clip
+  so footage starts before the event. The pre-buffer is sized from bitrate
+  and FPS (~2MB typical). Audio replay is aligned to video duration by
+  frame count (not timestamps) to avoid A/V desync across rings.
+- **Clip management**: Each clip has its own `clip_write` callback and file
+  descriptor — no fd-swapping between continuous and clip muxers.
+  Independent DTS bases (video from timestamp, audio from counter) ensure
+  clip timestamps always start from zero. `clip_length_sec` caps clip
+  duration; if motion continues, a new clip is opened without pre-buffer.
+- **Testing**: `raptorctl test-motion [seconds]` sends start/stop directly
+  to RMR, bypassing RMD cooldown. Default 10 seconds.
 - **Storage management**: Configurable segment rotation (`segment_minutes`
   in config) and storage cleanup (oldest segments deleted when free space
-  falls below threshold).
+  falls below threshold). Clips have separate storage limit (`clip_max_mb`).
 - **Dependencies**: librss_ipc, librss_common. No HAL dependency.
 - **Why separate**: File I/O can block (SD card write stalls). Isolating
   the recorder prevents storage latency from affecting the live stream.
@@ -1277,6 +1294,18 @@ night_threshold = 40000
 hysteresis_sec = 5
 gpio_ircut = 25
 gpio_irled = 26
+
+[recording]
+enabled = false
+mode = continuous             # continuous, motion, or both
+stream = 0
+audio = true
+segment_minutes = 5
+storage_path = /mnt/mmcblk0p1/raptor
+max_storage_mb = 0            # 0 = unlimited
+prebuffer_sec = 5             # seconds of pre-event footage in motion clips (0-5)
+clip_length_sec = 60          # motion clip max duration before rotation
+clip_max_mb = 100             # max total clip storage
 
 [motion]
 enabled = false
