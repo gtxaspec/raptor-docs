@@ -28,8 +28,26 @@ ring buffers. Exactly one instance of each runs per camera.
 - **Sensor auto-detect**: Reads sensor name, i2c_addr, resolution, and
   max FPS from `/proc/jz/sensor/` when not set in config. Default config
   ships with `[sensor]` section commented out — works on any device.
+  On platforms where `/proc/jz/sensor` is unavailable (e.g. T41), RVD
+  falls back to `[stream0]` width/height config values for sensor
+  resolution. T41 also requires `default_boot`, `mclk`, and
+  `video_interface` fields in the `[sensor]` config section.
 - **Startup info**: Logs LIBIMP version, SYSUTILS version, and CPU info
   (e.g., "T31-AL") via HAL `rss_hal_get_imp_version()` etc.
+- **Ring auto-sizing**: When `main_data_mb = 0` (default), RVD
+  calculates ring data region size from encoder bitrate:
+  `max_frame = bitrate / 8 / fps * 4`, clamped to [8KB..8MB] per slot,
+  then `data = max_frame * slot_count`, clamped to [256KB..8MB].
+  This avoids over-allocating on 32MB devices and under-allocating on
+  high-bitrate streams. Manual override is still supported.
+- **IVDC passthrough**: When `ivdc = true` in `[stream0]`, RVD passes
+  the flag to the HAL encoder config. IVDC (ISP-VPU Direct Connect)
+  replaces full frame buffers with line buffers, significantly reducing
+  rmem usage on T23/T32/T41.
+- **Stream0 resolution defaults**: When `[stream0]` width/height are
+  omitted, RVD defaults to the sensor's native resolution rather than
+  hardcoding 1920x1080. This prevents OOM on lower-resolution sensors
+  (e.g. 720p JXH63P on T23DL).
 - **Outputs**: Two video SHM rings (main, sub), two JPEG SHM rings
   (jpeg0, jpeg1 — one per video stream for snapshots). Snapshots are
   served directly from JPEG rings by RHD; no disk files are written.
@@ -79,7 +97,8 @@ ring buffers. Exactly one instance of each runs per camera.
   channel). Sets dirty flag after each update; RVD's OSD thread polls
   dirty flags.
 - **Control socket**: Accepts `set-text` command to change the OSD text
-  string at runtime.
+  string at runtime. Input is sanitized: control characters (bytes < 0x20)
+  are replaced with spaces to prevent OSD rendering corruption.
 - **Render loop**: 1Hz cycle — renders all dirty regions, updates SHM
   double-buffers.
 - **Why separate**: Font rendering is CPU-intensive relative to the
@@ -131,9 +150,13 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Outputs**: Speaker SHM ring (backchannel audio → RAD AO thread).
 - **Dependencies**: librss_ipc (SHM ring consumer API), compy (RTSP
   protocol library). Epoll-based event loop. No HAL dependency.
-- **Protocol**: Standard RTSP 1.0 (DESCRIBE/SETUP/PLAY/TEARDOWN). Two
-  mount points: `/stream0` (main) and `/stream1` (sub). Audio track
-  included when RAD is running. TCP interleaved and UDP transport.
+- **Protocol**: Standard RTSP 1.0 (DESCRIBE/SETUP/PLAY/TEARDOWN). TCP
+  interleaved and UDP transport. Audio track included when RAD is running.
+- **Endpoints**: Default mount points: `/stream0` or `/main` (main stream),
+  `/stream1` or `/sub` (sub stream), `/` (root, maps to main). Custom
+  exclusive endpoints configurable via `endpoint_main` and `endpoint_sub`
+  in `[rtsp]` config — when set, only the custom paths are accepted and
+  all defaults are disabled. Unknown endpoints return 404 Not Found.
 - **Audio codecs over RTSP**: All RAD codecs are supported. SDP and RTP
   packetization are codec-aware: PCMU/PCMA use static payload types,
   AAC uses RFC 3640 (mpeg4-generic with AU header section), Opus uses
@@ -147,6 +170,9 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   with IP, port, stream index, transport, and video/audio/backchannel state.
 - **Authentication**: Digest auth (RFC 2617) via compy, credentials from
   `[rtsp]` config section. Empty = no auth.
+- **Early exit**: When `enabled = false` in `[rtsp]` config, RSD logs
+  "RTSP disabled in config" and exits cleanly without opening any
+  sockets or rings. All consumer daemons follow this pattern.
 - **Network**: Dual-stack IPv6 (AF_INET6 with IPV6_V6ONLY=0), port 554.
   Per-client RTP timestamp offsets ensure each client sees timestamps
   starting from zero on connect (set on first keyframe delivery).
@@ -166,6 +192,9 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   - `/mjpeg` — MJPEG stream (multipart/x-mixed-replace from jpeg0 ring)
   - `/` — simple HTML index page with links and embedded MJPEG preview
 - **Network**: Dual-stack IPv6 (AF_INET6 with IPV6_V6ONLY=0), port 8080.
+  Client sockets are set non-blocking (`O_NONBLOCK` via `fcntl`) so that
+  a slow MJPEG client with a full TCP window cannot stall the event loop
+  or block frame delivery to other clients.
 - **Why separate**: HTTP and RTSP are different protocols with different
   connection lifecycles. RHD can serve snapshots even if RSD is down.
 
@@ -184,11 +213,18 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   it closes the current file and opens a new one without touching the
   previous segment.
 - **Thread model**: Single-threaded. The main loop reads rings, feeds the
-  muxer, and writes directly to disk. fMP4 fragments are small enough
-  that SD card writes complete without dropping frames.
+  muxer, and writes directly to the file descriptor via `direct_write()`.
+  No intermediate circular write buffer — each muxer output callback
+  writes immediately to disk with retry on `EINTR`. This eliminates a
+  prior class of corruption bugs where NAL data spanning the write
+  buffer's wrap boundary could produce garbled frames.
 - **Crash safety**: Each `moof+mdat` pair is self-contained and written
   directly to the file descriptor. A crash between fragments leaves all
   prior fragments intact and playable.
+- **AVCC conversion**: H.264/H.265 Annex B NAL units are converted to
+  AVCC (length-prefixed) format for MP4 boxing. The conversion validates
+  NAL length against available AVCC buffer space to prevent integer
+  overflow on malformed input.
 - **Timestamps**: Video DTS is derived from ring slot timestamps. Audio
   DTS is counter-based (sample count / sample rate), avoiding clock skew
   between ring producers.
@@ -808,15 +844,18 @@ case "$1" in
             usleep 100000
             timeout=$((timeout - 1))
         done
-        # Start remaining daemons (ROD between RAD and RSD)
+        # Start remaining daemons — each checks its own [section] enabled flag
+        # and exits cleanly if disabled, so all can be started unconditionally.
         start-stop-daemon -S -b -x /usr/bin/rad -- -c /etc/raptor.conf
         start-stop-daemon -S -b -x /usr/bin/rod -- -c /etc/raptor.conf
         start-stop-daemon -S -b -x /usr/bin/rsd -- -c /etc/raptor.conf
         start-stop-daemon -S -b -x /usr/bin/rhd -- -c /etc/raptor.conf
+        start-stop-daemon -S -b -x /usr/bin/rmr -- -c /etc/raptor.conf
         start-stop-daemon -S -b -x /usr/bin/ric -- -c /etc/raptor.conf
         ;;
     stop)
         # Stop consumers first, then producers, then HAL owner
+        start-stop-daemon -K -x /usr/bin/rmr
         start-stop-daemon -K -x /usr/bin/rsd
         start-stop-daemon -K -x /usr/bin/rhd
         start-stop-daemon -K -x /usr/bin/ric
@@ -921,9 +960,14 @@ CPU usage                           <2%       hardware encoder does the work
 
 ### 6.2 Optimization Strategies
 
-- **SHM ring sizing**: Reduce `data_size` if consumers keep up well.
-  2MB is conservative for 1080p@25fps H264 at 2Mbps (max frame ~100KB).
-  1MB may suffice for VBR with small GOPs.
+- **SHM ring auto-sizing**: When `main_data_mb = 0`, RVD auto-sizes ring
+  data regions from encoder bitrate. For a 720p@25fps stream at 1Mbps,
+  auto-sizing allocates ~640KB vs the old fixed 4MB — an 84% reduction.
+  This is critical for 32MB devices where every KB counts.
+- **IVDC (ISP-VPU Direct Connect)**: On T23/T32/T41, setting `ivdc = true`
+  in `[stream0]` replaces full frame buffers in rmem with line buffers,
+  reducing encoder DMA memory by ~60%. Requires kernel module parameter
+  `direct_mode=1 ivdc_mem_line=<lines>` in `/etc/modules.d/20-isp`.
 - **ROD glyph cache**: Pre-render digits 0-9 and common punctuation at
   startup. Reuse bitmaps for timestamp updates (only re-render changed
   digits).
@@ -947,6 +991,15 @@ RVD + RSD + RAD + ROD:    ~20MB total (adds OSD)
 
 RMR, RSP, RV4 are omitted on 32MB systems unless absolutely needed.
 RIC can run if IR-cut control is required (~128KB additional).
+
+Key optimizations for 32MB:
+- **Auto-ring sizing** (`main_data_mb = 0`): reduces ring allocation
+  from 4MB to ~640KB for a 720p@25fps 1Mbps stream.
+- **Stream0 defaults to sensor resolution**: prevents accidental
+  1920x1080 allocation on a 720p sensor.
+- **IVDC** (when SDK supports it): reduces rmem from 11M to ~8M by
+  using line buffers instead of frame buffers.
+- **Single-stream mode**: disable `[stream1]` to halve encoder memory.
 
 ---
 
@@ -1060,10 +1113,14 @@ name = gc4653
 i2c_addr = 0x29
 i2c_adapter = 0
 fps = 0                # 0 = auto-detect from /proc/jz/sensor/max_fps
+# boot = 0             # T41: default_boot index
+# mclk = 0             # T41: sensor master clock source
+# video_interface = 0  # T41: video interface type (MIPI/DVP)
 
 [stream0]
-width = 1920
-height = 1080
+# width/height omitted = default to sensor native resolution
+# width = 1920
+# height = 1080
 fps = 25
 codec = h264           # h264, h265, jpeg
 profile = 2            # 0=baseline, 1=main, 2=high
@@ -1072,6 +1129,7 @@ rc_mode = vbr          # cbr, vbr, fixqp, capped_vbr
 gop = 50
 min_qp = 15
 max_qp = 45
+ivdc = false           # ISP-VPU Direct Connect (T23/T32/T41 only)
 
 [stream1]
 enabled = true
@@ -1094,9 +1152,9 @@ bufshare = true        # share buffer pool with video encoder
 
 [ring]
 main_slots = 32
-main_data_mb = 4
+main_data_mb = 0       # 0 = auto-size from encoder bitrate
 sub_slots = 32
-sub_data_mb = 1
+sub_data_mb = 0        # 0 = auto-size from encoder bitrate
 
 [audio]
 enabled = true
@@ -1107,10 +1165,16 @@ volume = 80
 gain = 25
 
 [rtsp]
+enabled = true
 port = 554
 max_clients = 4
+# endpoint_main = ch0   # custom exclusive endpoint (disables defaults)
+# endpoint_sub = ch1    # custom exclusive endpoint (disables defaults)
+# username = admin       # digest auth (both required to enable)
+# password = secret
 
 [http]
+enabled = true
 port = 8080
 
 [osd]
@@ -1219,17 +1283,33 @@ largest frame the producer can write.
 ## 11. Verified Platforms
 
 The following SoC and sensor combinations have been confirmed working
-end-to-end (RVD + RAD + RSD; stream plays in ffplay):
+end-to-end (RVD + RAD + RSD + ROD + RHD + RMR; stream plays in ffplay,
+fMP4 recording verified):
 
-| SoC | SDK Generation | Sensor | Status |
-|-----|---------------|--------|--------|
-| T20 | Old SDK | jxf23 | Confirmed working |
-| T31 | New SDK | gc2053 | Confirmed working (primary target) |
+| SoC | SDK Generation | Sensor | RAM | Status |
+|-----|---------------|--------|-----|--------|
+| T20 | Old SDK (XB1) | jxf23 | 64MB | Confirmed working (H.264 only) |
+| T23DL | Old SDK (XB1) | jxh63p | 32MB | Confirmed working (720p, auto-ring sizing) |
+| T30 | Old SDK (XB1) | sc1235 | 128MB | Confirmed working (H.265 + H.264) |
+| T31 | New SDK (XB2) | gc2053 | 128MB | Confirmed working (primary target) |
+| T41 | IMPVI SDK (XB2) | gc4023 | 128MB | Confirmed working (2560x1440, dual-stream) |
 
 T20 uses the gen1 HAL (`hal_gen1.c`). Notably it has no H265 encoder
 and no dynamic bitrate support; RVD falls back to H264 and logs a
 warning if H265 is requested in config. All consumer daemons are
 codec-agnostic and work without modification.
+
+T23DL is the most constrained platform (32MB RAM). Auto-ring sizing
+and single-stream mode are essential. IVDC support is implemented but
+requires a newer T23 SDK build for on-device testing.
+
+T41 uses the IMPVI SDK (XB2 generation). It does not need the uclibc
+shim library — native uclibc libs work directly, and linking the shim
+causes crashes. The Makefile auto-detects shim availability and skips
+it on T40/T41. T41 requires additional sensor config fields
+(`default_boot`, `mclk`, `video_interface`) and uses `[stream0]`
+config values as sensor resolution fallback since `/proc/jz/sensor`
+is not available.
 
 ### 11.1 T20 FPS Characteristics
 
@@ -1251,3 +1331,12 @@ lost frames.
 Sensor FPS auto-detection reads `/proc/jz/sensor/max_fps` on startup.
 Set `fps = 0` (default) in `[sensor]` to use the auto-detected value,
 or set a specific integer to override.
+
+### 11.2 T41 gc4023 FPS Characteristics
+
+The gc4023 sensor on T41 reports 25fps capability but measures ~19fps
+in low-light conditions. This is a sensor-level limitation — AE
+(auto-exposure) integration time at low light produces ~54ms frame
+intervals. Increasing ambient light recovers full frame rate. This is
+not an encoder or OSD bottleneck — the ISP frame counter (`isp-w02`)
+confirms the reduced rate originates at the sensor.
