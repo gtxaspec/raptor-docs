@@ -190,7 +190,20 @@ else                      → SRTP/SRTCP
 
 | File | Change |
 |------|--------|
-| `package/mbedtls/` | Enable `MBEDTLS_SSL_DTLS_SRTP` in config |
+| `package/mbedtls/mbedtls.mk` | Add sed to enable `MBEDTLS_SSL_DTLS_SRTP` when `BR2_PACKAGE_MBEDTLS_DTLS_SRTP=y` |
+| `package/mbedtls/Config.in` | Add `config BR2_PACKAGE_MBEDTLS_DTLS_SRTP` option |
+| `package/thingino-raptor/Config.in` | Add `BR2_PACKAGE_THINGINO_RAPTOR_WEBRTC` that selects `BR2_PACKAGE_MBEDTLS_DTLS_SRTP` |
+
+```kconfig
+# In thingino-raptor Config.in:
+config BR2_PACKAGE_THINGINO_RAPTOR_WEBRTC
+    bool "WebRTC daemon (RWD)"
+    default n
+    select BR2_PACKAGE_MBEDTLS_DTLS_SRTP
+    help
+      Build the WebRTC streaming daemon with WHIP signaling.
+      Requires mbedTLS with DTLS-SRTP support.
+```
 
 ## Dependencies
 
