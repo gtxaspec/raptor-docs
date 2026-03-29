@@ -298,7 +298,7 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   the recorder prevents storage latency from affecting the live stream.
   RMR can be started/stopped via raptorctl for event-triggered recording.
 
-#### RSP -- Stream Push
+#### RSP -- Stream Push *(planned, not yet implemented)*
 
 - **Role**: Push RTMP/RTSP streams to an external server (YouTube,
   cloud NVR, custom endpoint).
@@ -308,7 +308,7 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   bandwidth, server availability). Isolating it prevents network stalls
   from affecting local recording or RTSP serving.
 
-#### RV4 -- V4L2 Bridge
+#### RV4 -- V4L2 Bridge *(planned, not yet implemented)*
 
 - **Role**: Expose the video stream as a V4L2 output device
   (`/dev/videoN`) for local consumers (motion detection, ML inference).
@@ -376,7 +376,7 @@ These daemons control hardware peripherals and do not process frame data.
   is independent of the IVS hardware pipeline. RMD can be restarted or
   reconfigured without interrupting video streaming or IVS processing.
 
-#### RMC -- Motor Control
+#### RMC -- Motor Control *(planned, not yet implemented)*
 
 - **Role**: Drive pan/tilt/zoom motors via GPIO or UART for PTZ cameras.
 - **HAL dependency**: `gpio_set()` for stepper motors, or direct UART

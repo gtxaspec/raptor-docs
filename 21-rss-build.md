@@ -85,26 +85,17 @@ raptor/
 │   │   └── src/
 │   │       ├── rmr_main.c
 │   │       └── rmr_muxer.c         # MP4/MKV muxing
-│   ├── rsp/
-│   │   ├── CMakeLists.txt
-│   │   └── src/
-│   │       ├── rsp_main.c
-│   │       └── rsp_push.c          # RTMP/RTSP push client
-│   ├── rv4/
-│   │   ├── CMakeLists.txt
-│   │   └── src/
-│   │       ├── rv4_main.c
-│   │       └── rv4_v4l2.c          # V4L2 output device
+│   ├── rsp/                             # (planned, not yet implemented)
+│   │   └── ...                          # RTMP/RTSP push client
+│   ├── rv4/                             # (planned, not yet implemented)
+│   │   └── ...                          # V4L2 output device
 │   ├── ric/
 │   │   ├── CMakeLists.txt
 │   │   └── src/
 │   │       ├── ric_main.c
 │   │       └── ric_daynight.c      # exposure monitor + IR-cut control
-│   └── rmc/
-│       ├── CMakeLists.txt
-│       └── src/
-│           ├── rmc_main.c
-│           └── rmc_motor.c         # stepper/UART motor control
+│   └── rmc/                             # (planned, not yet implemented)
+│       └── ...                          # stepper/UART motor control
 ├── tools/
 │   ├── raptorctl/
 │   │   ├── CMakeLists.txt          # raptorctl binary
@@ -832,7 +823,8 @@ Approximate binary sizes (stripped):
 ### 7.2 Full Build
 
 ```
-Daemons: RVD + RAD + ROD + RSD + RMR + RSP + RV4 + RIC + RMC
+Daemons: RVD + RAD + ROD + RSD + RHD + RMR + RIC + RMD
+Planned (not yet built): RSP + RV4 + RMC
 Dependencies: all of the above
 Approximate total binary size (stripped): ~400KB
 ```
