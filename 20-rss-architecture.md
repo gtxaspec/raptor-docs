@@ -298,6 +298,36 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   the recorder prevents storage latency from affecting the live stream.
   RMR can be started/stopped via raptorctl for event-triggered recording.
 
+#### RWD -- WebRTC Daemon
+
+- **Role**: Send live H.264 + Opus to browsers and go2rtc via WebRTC
+  with sub-second latency. WHIP signaling over HTTP.
+- **Inputs**: Main or sub video ring (selectable per client), audio ring.
+- **Protocol stack**: ICE-lite (STUN binding), DTLS-SRTP (mbedTLS for
+  DTLS handshake, compy for SRTP/RTP/NAL transport), WHIP over HTTP.
+- **Endpoints**:
+  - `GET /webrtc` — embedded HTML5 player page (connect/disconnect/unmute)
+  - `POST /whip[?stream=N]` — SDP offer/answer exchange
+  - `DELETE /whip/{session}` — session teardown
+- **Ports**: UDP for STUN/DTLS/SRTP (`udp_port`, default 8443),
+  TCP for HTTP signaling (`http_port`, default 8554).
+- **Features**:
+  - Main/sub stream selector via query parameter
+  - Per-client SSRC declared in SDP for pion/go2rtc compatibility
+  - sdes:mid RTP header extension for BUNDLE demux
+  - PLI/FIR feedback → IDR request for fast packet loss recovery
+  - Consent freshness (RFC 7675): evicts silent clients after 30s
+  - SHA256 ciphersuites only (SHA384 PRF incompatible with TLS PRF workaround)
+- **Browser support**: Chrome, Edge, Safari. Firefox requires mbedTLS ≥ 3.6.6
+  (ClientHello defragmentation, PR #10623).
+- **go2rtc**: Compatible as `webrtc:http://camera:8554/whip` source.
+- **Build**: Requires `TLS=1` and `MBEDTLS_SSL_DTLS_SRTP` enabled.
+- **Config**: `[webrtc]` section — `enabled`, `udp_port`, `http_port`,
+  `max_clients`, `cert`, `key`.
+- **Dependencies**: librss_ipc, librss_common, libcompy, libmbedtls.
+- **Why separate**: DTLS/SRTP state is per-client and heavyweight
+  (mbedTLS contexts). Isolating WebRTC keeps the RTSP path simple.
+
 #### RSP -- Stream Push *(planned, not yet implemented)*
 
 - **Role**: Push RTMP/RTSP streams to an external server (YouTube,

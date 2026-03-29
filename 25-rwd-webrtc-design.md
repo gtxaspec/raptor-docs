@@ -214,24 +214,48 @@ config BR2_PACKAGE_THINGINO_RAPTOR_WEBRTC
 
 ---
 
-## Browser Compatibility
+## Compatibility
 
-WebRTC H.264 support:
-- Chrome: ✓ (tested, working)
+### Browsers
+
+- Chrome: ✓ (tested, video + audio)
 - Edge: ✓ (same engine as Chrome)
 - Safari: ✓ (H.264 native)
 - Firefox: ✗ requires mbedTLS ≥ 3.6.6 (see Known Issues)
 
-Audio: Opus (already supported by RAD + compy)
+### go2rtc
+
+Compatible as a WHEP source:
+```yaml
+streams:
+  camera_webrtc:
+    - webrtc:http://CAMERA_IP:8554/whip
+```
+
+Requires:
+- SSRC declared in SDP answer (`a=ssrc:` lines) — pion matches
+  incoming RTP by declared SSRC
+- sdes:mid RTP header extension — pion uses MID for BUNDLE demux
+- SHA256 ciphersuites — SHA384 PRF produces wrong SRTP keys with
+  the TLS PRF workaround
+
+Audio: Opus (RAD encodes, RWD sends via SRTP)
 
 ## Known Issues
 
-### compy SRTP IV fix (fixed)
+### compy SRTP fixes (all fixed)
 
-compy's SRTP AES-CM IV construction had the session salt at bytes
-[2..15] instead of [0..13] per RFC 3711 Section 4.1. The packet
-index was also packed as a 32-bit value instead of ROC(32)+SEQ(16).
-Fixed in compy commit `e87567d`.
+1. **IV construction** (`e87567d`): Session salt was at bytes [2..15]
+   instead of [0..13] per RFC 3711 Section 4.1. Packet index was a
+   32-bit value instead of ROC(32)+SEQ(16).
+2. **SSRC byte order** (`7b6458d`): RTP SSRC was serialized in host
+   byte order (no htonl) while RTCP already used htonl. Now consistent.
+3. **RTP extension support** (`2fb9ab4`): Added one-byte header
+   extension (RFC 8285) for sdes:mid. SRTP now skips extensions when
+   computing the payload encryption offset.
+4. **Extension serialization** (`9392579`): extension_payload_len was
+   in network byte order in the struct but used as host order for size
+   computation. Fixed to host order internally, converted in serializer.
 
 ### mbedTLS `export_keying_material` crash
 

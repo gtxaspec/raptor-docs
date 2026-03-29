@@ -63,6 +63,15 @@ raptor/                  # main repo: all daemons and tools
 │   ├── rmd.h
 │   ├── rmd_main.c
 │   └── rmd_actions.c
+├── rwd/                 # WebRTC daemon (WHIP, DTLS-SRTP)
+│   ├── Makefile
+│   ├── rwd.h
+│   ├── rwd_main.c
+│   ├── rwd_dtls.c
+│   ├── rwd_ice.c
+│   ├── rwd_sdp.c
+│   ├── rwd_signaling.c
+│   └── rwd_media.c
 ├── raptorctl/           # CLI control tool
 │   ├── Makefile
 │   └── raptorctl.c
