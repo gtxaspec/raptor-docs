@@ -240,6 +240,8 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
     timing side-channel attacks on password checks.
   - Oversized requests (>4KB) receive `414 URI Too Long` and are closed.
   - GET-only: all other methods return `405 Method Not Allowed`.
+- **Client listing**: `raptorctl rhd clients` shows connected clients
+  with IP and type (mjpeg/snapshot).
 - **Why separate**: HTTP and RTSP are different protocols with different
   connection lifecycles. RHD can serve snapshots even if RSD is down.
 
@@ -321,6 +323,8 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Browser support**: Chrome, Edge, Safari. Firefox requires mbedTLS ≥ 3.6.6
   (ClientHello defragmentation, PR #10623).
 - **go2rtc**: Compatible as `webrtc:http://camera:8554/whip` source.
+- **Client listing**: `raptorctl rwd clients` shows connected clients
+  with IP, stream index, sending state, ICE and DTLS status.
 - **Build**: Requires `TLS=1` and `MBEDTLS_SSL_DTLS_SRTP` enabled.
 - **Config**: `[webrtc]` section — `enabled`, `udp_port`, `http_port`,
   `max_clients`, `cert`, `key`.
