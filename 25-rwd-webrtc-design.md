@@ -217,21 +217,59 @@ config BR2_PACKAGE_THINGINO_RAPTOR_WEBRTC
 ## Browser Compatibility
 
 WebRTC H.264 support:
-- Chrome: H.264 Constrained Baseline (profile 42e0) ✓
-- Firefox: H.264 via OpenH264 plugin (auto-installed) ✓
-- Safari: H.264 native ✓
-- Edge: Same as Chrome ✓
+- Chrome: ✓ (tested, working)
+- Edge: ✓ (same engine as Chrome)
+- Safari: ✓ (H.264 native)
+- Firefox: ✗ requires mbedTLS ≥ 3.6.6 (see Known Issues)
 
 Audio: Opus (already supported by RAD + compy)
+
+## Known Issues
+
+### compy SRTP IV fix (fixed)
+
+compy's SRTP AES-CM IV construction had the session salt at bytes
+[2..15] instead of [0..13] per RFC 3711 Section 4.1. The packet
+index was also packed as a 32-bit value instead of ROC(32)+SEQ(16).
+Fixed in compy commit `e87567d`.
+
+### mbedTLS `export_keying_material` crash
+
+`mbedtls_ssl_export_keying_material()` segfaults in mbedTLS 3.6.5
+when called on a DTLS 1.2 context. RWD works around this by using
+`mbedtls_ssl_tls_prf()` with the master secret captured via the
+key export callback (`mbedtls_ssl_set_export_keys_cb`).
+
+### Firefox: ClientHello fragmentation (mbedTLS < 3.6.6)
+
+Firefox sends a ~1400 byte DTLS ClientHello (includes TLS 1.3
+extensions: key_share, supported_versions). This exceeds the DTLS
+record MTU and gets fragmented at the DTLS handshake layer.
+mbedTLS 3.6.5 does not support reassembling a fragmented
+ClientHello, returning `MBEDTLS_ERR_SSL_FEATURE_UNAVAILABLE`.
+
+Fix: [Mbed-TLS/mbedtls#10623](https://github.com/Mbed-TLS/mbedtls/pull/10623)
+backported ClientHello defragmentation to the `mbedtls-3.6` branch
+(merged 2026-03-10). This will ship in mbedTLS 3.6.6. Until then,
+building against the `mbedtls-3.6` branch HEAD enables Firefox.
+
+### DTLS cookie disabled
+
+DTLS HelloVerifyRequest (cookie exchange) is disabled because ICE
+already verifies the client's transport address before DTLS begins.
+This is safe for WebRTC but means RWD should not be exposed as a
+standalone DTLS server without ICE.
 
 ---
 
 ## Verification
 
 1. Build: `./build.sh t31 <output> rwd`
-2. Config: `[webrtc] enabled = true`, cert/key paths
+2. Config: `[webrtc] enabled = true`, cert/key paths set to valid
+   certificate (uhttpd certs work: `/etc/ssl/certs/uhttpd.crt`)
 3. Start RWD alongside other daemons
-4. Open `http://camera:8080/webrtc` in browser
-5. Click connect → WHIP POST → DTLS handshake → video plays
-6. Verify: <500ms latency, audio+video in sync
-7. Test: multiple clients, disconnect/reconnect, Chrome+Firefox
+4. Open `http://camera:8554/webrtc` in browser
+5. Click Connect → WHIP POST → DTLS handshake → video plays
+6. Click Unmute for audio
+7. Verify: sub-second latency, audio+video in sync
+8. Test: multiple clients, disconnect/reconnect, Chrome/Edge/Safari
