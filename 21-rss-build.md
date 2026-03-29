@@ -1,880 +1,372 @@
 # Raptor Streaming System -- Build System
 
-CMake project structure, cross-compilation toolchain, Buildroot package
-integration, x86 stub build for development, and debug build with
-sanitizers.
+Makefile-based build with per-directory Makefiles, cross-compilation via
+Buildroot toolchain, ASAN debug build for x86, and Buildroot package
+integration.
 
 ---
 
-## 1. CMake Structure
+## 1. Repository Layout
+
+Raptor is split across five git repositories, expected as siblings:
 
 ```
-raptor/
-├── CMakeLists.txt                  # top-level: options, toolchain, subdirs
-├── cmake/
-│   ├── mips-linux-gnu.cmake        # cross-compilation toolchain file
-│   ├── x86-stub.cmake              # x86 stub toolchain overrides
-│   └── FindIngenicSDK.cmake        # find ingenic-lib + ingenic-headers
-├── hal/
-│   ├── CMakeLists.txt              # librss_hal (static)
-│   ├── include/
-│   │   └── raptor_hal.h            # public HAL API (see 10-hal-api.md)
-│   └── src/
-│       ├── hal_common.c            # factory, destroy, shared utils
-│       ├── hal_gen1.c              # T20/T21/T30
-│       ├── hal_t23.c               # T23
-│       ├── hal_t31.c               # T31
-│       ├── hal_t32.c               # T32
-│       ├── hal_t40.c               # T40
-│       ├── hal_t41.c               # T41
-│       └── hal_stub.c              # x86 stub (synthetic frames)
-├── lib/
-│   ├── librss_ipc/
-│   │   ├── CMakeLists.txt          # librss_ipc (shared or static)
-│   │   ├── include/
-│   │   │   └── rss_ipc.h            # SHM ring buffer + OSD + control API
-│   │   └── src/
-│   │       ├── rss_ring.c
-│   │       ├── rss_osd_shm.c
-│   │       └── rss_ctrl.c
-│   └── librss_common/
-│       ├── CMakeLists.txt          # librss_common (static)
-│       ├── include/
-│       │   ├── rss_config.h        # JSON config parser
-│       │   ├── rss_log.h           # logging (syslog + stderr)
-│       │   └── rss_util.h          # misc utilities (daemonize, pid, signal)
-│       └── src/
-│           ├── config.c
-│           ├── log.c
-│           └── util.c
-├── daemons/
-│   ├── rvd/
-│   │   ├── CMakeLists.txt          # rvd binary
-│   │   └── src/
-│   │       ├── rvd_main.c
-│   │       ├── rvd_pipeline.c      # HAL pipeline setup/teardown
-│   │       ├── rvd_frame_loop.c    # encoder poll + ring publish
-│   │       └── rvd_osd.c           # OSD SHM consumer (eventfd listener)
-│   ├── rod/
-│   │   ├── CMakeLists.txt          # rod binary
-│   │   └── src/
-│   │       ├── rod_main.c
-│   │       ├── rod_render.c        # libschrift text rendering
-│   │       └── rod_osd_pub.c       # OSD SHM producer (double-buffer + eventfd)
-│   ├── rad/
-│   │   ├── CMakeLists.txt          # rad binary
-│   │   └── src/
-│   │       ├── rad_main.c
-│   │       └── rad_audio_loop.c    # audio read + encode + ring publish
-│   ├── rsd/
-│   │   ├── Makefile
-│   │   ├── rsd_main.c
-│   │   ├── rsd_server.c            # epoll event loop, client management
-│   │   ├── rsd_session.c           # RTSP/compy controller (DESCRIBE/SETUP/PLAY)
-│   │   └── rsd_ring_reader.c       # video + audio ring reader threads
-│   ├── rhd/
-│   │   ├── Makefile
-│   │   └── rhd_main.c              # HTTP server: /snap.jpg (from JPEG ring), /mjpeg
-│   ├── rod/
-│   │   ├── Makefile
-│   │   ├── rod.h                   # state structs, region roles, glyph cache
-│   │   ├── rod_main.c             # OSD daemon: config, SHM, 1Hz render loop
-│   │   └── rod_render.c           # libschrift font rendering, BGRA compositing
-│   ├── rmr/
-│   │   ├── CMakeLists.txt
-│   │   └── src/
-│   │       ├── rmr_main.c
-│   │       └── rmr_muxer.c         # MP4/MKV muxing
-│   ├── rsp/                             # (planned, not yet implemented)
-│   │   └── ...                          # RTMP/RTSP push client
-│   ├── rv4/                             # (planned, not yet implemented)
-│   │   └── ...                          # V4L2 output device
-│   ├── ric/
-│   │   ├── CMakeLists.txt
-│   │   └── src/
-│   │       ├── ric_main.c
-│   │       └── ric_daynight.c      # exposure monitor + IR-cut control
-│   └── rmc/                             # (planned, not yet implemented)
-│       └── ...                          # stepper/UART motor control
-├── tools/
-│   ├── raptorctl/
-│   │   ├── CMakeLists.txt          # raptorctl binary
-│   │   └── src/
-│   │       └── raptorctl.c
-│   └── ringdump/
-│       ├── CMakeLists.txt          # debug tool: dump SHM ring contents
-│       └── src/
-│           └── ringdump.c
+raptor/                  # main repo: all daemons and tools
+├── Makefile             # top-level build (orchestrates sub-makes)
+├── build.sh             # convenience wrapper: ./build.sh t31 <br_output>
+├── build-asan.sh        # x86 ASAN build (mock HAL, native gcc)
 ├── config/
-│   └── raptor.json                 # default configuration file
-└── res/
-    └── default.ttf                 # default OSD font
-```
+│   └── raptor.conf      # default configuration file
+├── run.sh               # NFS launch script for on-device testing
+├── rvd/                 # video daemon (HAL, pipeline, encoder, IVS)
+│   ├── Makefile
+│   ├── rvd.h
+│   ├── rvd_main.c
+│   ├── rvd_pipeline.c
+│   ├── rvd_frame_loop.c
+│   ├── rvd_ctrl.c
+│   ├── rvd_osd.c
+│   └── rvd_ivs.c
+├── rsd/                 # RTSP streaming daemon (compy-based)
+│   ├── Makefile
+│   ├── rsd.h
+│   ├── rsd_main.c
+│   ├── rsd_server.c
+│   ├── rsd_session.c
+│   └── rsd_ring_reader.c
+├── rad/                 # audio daemon (HAL, encode, ring publish)
+│   ├── Makefile
+│   └── rad_main.c
+├── rhd/                 # HTTP daemon (snap.jpg, MJPEG)
+│   ├── Makefile
+│   └── rhd_main.c
+├── rod/                 # OSD daemon (libschrift rendering)
+│   ├── Makefile
+│   ├── rod.h
+│   ├── rod_main.c
+│   └── rod_render.c
+├── ric/                 # IR-cut day/night control
+│   ├── Makefile
+│   ├── ric.h
+│   ├── ric_main.c
+│   └── ric_daynight.c
+├── rmr/                 # recorder (fMP4, pre-buffer, clips)
+│   ├── Makefile
+│   ├── rmr.h
+│   ├── rmr_main.c
+│   ├── rmr_mux.c / rmr_mux.h
+│   ├── rmr_nal.c / rmr_nal.h
+│   ├── rmr_prebuf.c / rmr_prebuf.h
+│   └── rmr_storage.c / rmr_storage.h
+├── rmd/                 # motion detection daemon
+│   ├── Makefile
+│   ├── rmd.h
+│   ├── rmd_main.c
+│   └── rmd_actions.c
+├── raptorctl/           # CLI control tool
+│   ├── Makefile
+│   └── raptorctl.c
+├── ringdump/            # SHM ring debug tool
+│   ├── Makefile
+│   └── ringdump.c
+├── rac/                 # audio client (play/record)
+│   ├── Makefile
+│   └── rac.c
+├── rsp/                 # (planned, not yet implemented)
+├── rv4/                 # (planned, not yet implemented)
+├── rmc/                 # (planned, not yet implemented)
+└── tests/
+    ├── mock_hal.c       # x86 mock HAL for ASAN builds
+    └── create_rings.c   # synthetic SHM rings for testing
 
-### 1.1 Top-Level CMakeLists.txt
+raptor-hal/              # HAL abstraction layer (separate repo)
+├── Makefile
+├── include/raptor_hal.h
+└── src/
+    ├── hal_common.c     # factory, shared utils, multi-sensor dispatch
+    ├── hal_encoder.c    # encoder create/destroy/poll
+    ├── hal_framesource.c
+    ├── hal_isp.c        # ISP tuning (per-SoC differences)
+    ├── hal_audio.c
+    ├── hal_osd.c
+    ├── hal_gpio.c
+    ├── hal_ivs.c        # IVS motion detection wrapper
+    ├── hal_dmic.c
+    ├── hal_caps.c       # per-SoC capability tables
+    └── hal_memory.c
 
-```cmake
-cmake_minimum_required(VERSION 3.10)
-project(raptor C)
+raptor-ipc/              # IPC library (separate repo)
+├── Makefile
+├── include/rss_ipc.h
+└── src/
+    ├── rss_ring.c       # SHM ring buffer (futex-based)
+    ├── rss_osd_shm.c    # OSD double-buffer SHM
+    └── rss_ctrl.c       # Unix domain control sockets
 
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
+raptor-common/           # common utilities (separate repo)
+├── Makefile
+├── include/rss_common.h
+└── src/
+    ├── rss_log.c        # logging (syslog + stderr)
+    ├── rss_config.c     # INI config parser (no JSON dependency)
+    ├── rss_daemon.c     # daemonize, PID files, signals, daemon init
+    └── rss_util.c       # timestamps, string utils, file I/O, JSON helpers
 
-# --- Platform selection ---
-# Set by toolchain file or manually: -DRSS_SOC=T31
-set(RSS_SOC "T31" CACHE STRING "Target SoC: T20, T21, T23, T30, T31, T32, T40, T41, STUB")
-set(RSS_PLATFORM "PLATFORM_${RSS_SOC}")
-add_definitions(-D${RSS_PLATFORM})
-
-message(STATUS "Raptor: building for ${RSS_SOC} (${RSS_PLATFORM})")
-
-# --- Build type defaults ---
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
-endif()
-
-# --- Common compiler flags ---
-add_compile_options(-Wall -Wextra -Werror=return-type -Wno-unused-parameter)
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_compile_options(-Os)
-endif()
-
-# --- Find Ingenic SDK (cross-build only) ---
-if(NOT RSS_SOC STREQUAL "STUB")
-    list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
-    find_package(IngenicSDK REQUIRED)
-endif()
-
-# --- Optional dependencies ---
-find_package(PkgConfig)
-if(PKG_CONFIG_FOUND)
-    pkg_check_modules(CJSON cjson)
-endif()
-
-# If cJSON not found via pkg-config, fall back to json-c
-if(NOT CJSON_FOUND)
-    pkg_check_modules(JSONC json-c)
-endif()
-
-# --- Libraries ---
-add_subdirectory(hal)
-add_subdirectory(lib/librss_ipc)
-add_subdirectory(lib/librss_common)
-
-# --- Daemons ---
-add_subdirectory(daemons/rvd)
-add_subdirectory(daemons/rad)
-add_subdirectory(daemons/rod)
-
-add_subdirectory(daemons/rsd)
-add_subdirectory(daemons/rmr)
-add_subdirectory(daemons/rsp)
-add_subdirectory(daemons/rv4)
-add_subdirectory(daemons/ric)
-add_subdirectory(daemons/rmc)
-
-# --- Tools ---
-add_subdirectory(tools/raptorctl)
-add_subdirectory(tools/ringdump)
-
-# --- Install ---
-install(FILES config/raptor.json DESTINATION /etc)
-install(FILES res/default.ttf DESTINATION /usr/share/fonts)
-```
-
-### 1.2 HAL CMakeLists.txt
-
-```cmake
-# hal/CMakeLists.txt
-add_library(rss_hal STATIC src/hal_common.c)
-
-# Select per-SoC implementation source
-if(RSS_SOC STREQUAL "STUB")
-    target_sources(rss_hal PRIVATE src/hal_stub.c)
-elseif(RSS_SOC STREQUAL "T20" OR RSS_SOC STREQUAL "T21" OR RSS_SOC STREQUAL "T30")
-    target_sources(rss_hal PRIVATE src/hal_gen1.c)
-elseif(RSS_SOC STREQUAL "T23")
-    target_sources(rss_hal PRIVATE src/hal_t23.c)
-elseif(RSS_SOC STREQUAL "T31")
-    target_sources(rss_hal PRIVATE src/hal_t31.c)
-elseif(RSS_SOC STREQUAL "T32")
-    target_sources(rss_hal PRIVATE src/hal_t32.c)
-elseif(RSS_SOC STREQUAL "T40")
-    target_sources(rss_hal PRIVATE src/hal_t40.c)
-elseif(RSS_SOC STREQUAL "T41")
-    target_sources(rss_hal PRIVATE src/hal_t41.c)
-else()
-    message(FATAL_ERROR "Unknown RSS_SOC: ${RSS_SOC}")
-endif()
-
-target_include_directories(rss_hal PUBLIC include)
-
-if(NOT RSS_SOC STREQUAL "STUB")
-    target_include_directories(rss_hal PRIVATE ${INGENIC_SDK_INCLUDE_DIRS})
-    target_link_libraries(rss_hal PRIVATE ${INGENIC_SDK_LIBRARIES})
-endif()
-```
-
-### 1.3 Daemon CMakeLists.txt (RVD Example)
-
-```cmake
-# daemons/rvd/CMakeLists.txt
-add_executable(rvd
-    src/rvd_main.c
-    src/rvd_pipeline.c
-    src/rvd_frame_loop.c
-    src/rvd_osd.c
-)
-
-target_link_libraries(rvd PRIVATE
-    rss_hal
-    rss_ipc
-    rss_common
-    pthread
-    rt            # shm_open, clock_gettime
-)
-
-if(NOT RSS_SOC STREQUAL "STUB")
-    target_link_libraries(rvd PRIVATE ${INGENIC_SDK_LIBRARIES})
-endif()
-
-install(TARGETS rvd DESTINATION /usr/bin)
+compy/                   # RTSP library (separate repo, CMake)
+├── CMakeLists.txt
+├── include/compy.h
+└── src/                 # RTSP parser, RTP transport, SDP, NAL packetizer
 ```
 
 ---
 
-## 2. Cross-Compilation Toolchain File
+## 2. Build System
 
-```cmake
-# cmake/mips-linux-gnu.cmake
-#
-# Usage: cmake -DCMAKE_TOOLCHAIN_FILE=cmake/mips-linux-gnu.cmake \
-#              -DRSS_SOC=T31 ..
+### 2.1 Top-Level Makefile
 
-set(CMAKE_SYSTEM_NAME Linux)
-set(CMAKE_SYSTEM_PROCESSOR mips)
+Plain GNU Make. No CMake, no autotools. Each daemon has its own
+sub-Makefile that compiles `.c` → `.o` → binary.
 
-# Toolchain prefix -- set externally or use default
-if(NOT DEFINED CROSS_COMPILE)
-    set(CROSS_COMPILE "mips-linux-gnu-")
-endif()
+```sh
+# Full cross-build
+make PLATFORM=T31 CROSS_COMPILE=mipsel-linux- SYSROOT=/path/to/sysroot
 
-set(CMAKE_C_COMPILER   "${CROSS_COMPILE}gcc")
-set(CMAKE_CXX_COMPILER "${CROSS_COMPILE}g++")
-set(CMAKE_LINKER        "${CROSS_COMPILE}ld")
-set(CMAKE_AR            "${CROSS_COMPILE}ar")
-set(CMAKE_STRIP         "${CROSS_COMPILE}strip")
+# Single daemon
+make PLATFORM=T31 CROSS_COMPILE=mipsel-linux- SYSROOT=/path/to/sysroot rvd
 
-# Sysroot -- set by Buildroot or manually
-if(DEFINED ENV{STAGING_DIR})
-    set(CMAKE_SYSROOT "$ENV{STAGING_DIR}")
-    set(CMAKE_FIND_ROOT_PATH "$ENV{STAGING_DIR}")
-endif()
+# Feature flags
+make PLATFORM=T31 CROSS_COMPILE=mipsel-linux- AAC=1 OPUS=1 TLS=1
 
-set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
-set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
-set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
-set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
-
-# XBurst CPU flags -- critical for Ingenic MIPS
-# -mno-fused-madd or -ffp-contract=off prevents FP miscompilations on XBurst
-set(CMAKE_C_FLAGS_INIT "-mips32r2 -mno-fused-madd -EL")
-set(CMAKE_C_FLAGS_RELEASE_INIT "-Os")
-set(CMAKE_C_FLAGS_DEBUG_INIT "-O0 -g -fno-omit-frame-pointer")
+# Clean
+make distclean
 ```
+
+**Required variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `PLATFORM` | Target SoC: T20, T21, T23, T30, T31, T32, T40, T41 |
+| `CROSS_COMPILE` | Compiler prefix (e.g., `mipsel-linux-`) |
+| `SYSROOT` | Buildroot sysroot path (for shared lib linking) |
+
+**Feature flags:**
+
+| Flag | Effect |
+|------|--------|
+| `AAC=1` | Enable AAC encode/decode (links libfaac + libhelix-aac) |
+| `OPUS=1` | Enable Opus codec (links libopus) |
+| `MP3=1` | Enable MP3 decode (links libhelix-mp3) |
+| `TLS=1` | Enable RTSPS (adds `-DCOMPY_HAS_TLS`, links mbedTLS) |
+| `AUDIO_EFFECTS=1` | Enable audio processing (NS, HPF, AGC) |
+| `DEBUG=1` | Build with `-O0 -g` instead of `-Os` |
+| `V=1` | Verbose build output |
+
+**Daemon dependencies:**
+
+| Daemon | Libraries |
+|--------|-----------|
+| RVD | raptor-hal + raptor-ipc + raptor-common + libimp + libalog + libsysutils |
+| RAD | raptor-hal + raptor-ipc + raptor-common + libimp (+ libfaac, libopus) |
+| RSD | raptor-ipc + raptor-common + compy (+ mbedTLS if TLS=1) |
+| RHD | raptor-ipc + raptor-common |
+| ROD | raptor-ipc + raptor-common + libschrift |
+| RIC | raptor-ipc + raptor-common |
+| RMR | raptor-ipc + raptor-common |
+| RMD | raptor-ipc + raptor-common |
+
+### 2.2 build.sh Convenience Wrapper
+
+```sh
+# Usage
+./build.sh <platform> <buildroot_output_dir> [targets...]
+
+# Examples
+./build.sh t31 /path/to/output                    # full clean build
+./build.sh t31 /path/to/output rvd rsd             # build specific daemons
+./build.sh t31 /path/to/output clean               # clean
+
+# What it does:
+# 1. Auto-detects sysroot and toolchain from buildroot output
+# 2. Auto-detects TLS support (mbedTLS in sysroot)
+# 3. Sets PLATFORM, CROSS_COMPILE, SYSROOT, AAC=1, OPUS=1
+# 4. Runs make with all flags
+```
+
+### 2.3 Supported Platforms
+
+| Platform | SoC | SDK Generation | Notes |
+|----------|-----|---------------|-------|
+| `t20` | T20 | Old | XBurst1 |
+| `t21` | T21 | Old | XBurst1 |
+| `t23` | T23 | Old (extended) | XBurst1, IVDC capable |
+| `t30` | T30 | Old | XBurst1 |
+| `t31` | T31 | New | XBurst1 (primary target) |
+| `t32` | T32 | New | XBurst1, dual-sensor |
+| `t40` | T40 | IMPVI | XBurst2 |
+| `t41` | T41 | IMPVI | XBurst2 |
 
 ---
 
 ## 3. Buildroot Package
 
-### 3.1 raptor.mk
+Raptor is split into five Buildroot packages matching the five repos:
 
-Based on the prudynt-t.mk pattern. Builds the full RSS daemon suite
-as a single Buildroot package.
+- `thingino-raptor` — daemons and tools
+- `thingino-raptor-hal` — HAL library
+- `thingino-raptor-ipc` — IPC library
+- `thingino-raptor-common` — common library
+- `compy` — RTSP library
+
+### 3.1 thingino-raptor.mk
 
 ```makefile
-################################################################################
-#
-# raptor -- Raptor Streaming System for Ingenic SoC cameras
-#
-################################################################################
+THINGINO_RAPTOR_SITE_METHOD = git
+THINGINO_RAPTOR_SITE = https://github.com/gtxaspec/raptor
+THINGINO_RAPTOR_SITE_BRANCH = main
 
-RAPTOR_SITE_METHOD = git
-RAPTOR_SITE = https://github.com/themactep/raptor
-RAPTOR_SITE_BRANCH = main
-RAPTOR_VERSION = $(RAPTOR_SITE_BRANCH)
+THINGINO_RAPTOR_DEPENDENCIES += ingenic-lib compy libschrift
+THINGINO_RAPTOR_DEPENDENCIES += thingino-raptor-hal thingino-raptor-ipc thingino-raptor-common
 
-# --- Dependencies ---
-
-RAPTOR_DEPENDENCIES += ingenic-lib
-RAPTOR_DEPENDENCIES += libschrift
-
-# ROD requires libschrift for text rendering
-ifeq ($(BR2_PACKAGE_RAPTOR_OSD),y)
-	RAPTOR_DEPENDENCIES += libschrift
+# Feature flags passed through to make
+ifeq ($(BR2_PACKAGE_THINGINO_RAPTOR_AAC),y)
+THINGINO_RAPTOR_MAKE_OPTS += AAC=1
+THINGINO_RAPTOR_DEPENDENCIES += faac libhelix-aac
 endif
 
-# RSD RTSP server -- live555 or custom
-ifeq ($(BR2_PACKAGE_RAPTOR_RTSP_LIVE555),y)
-	RAPTOR_DEPENDENCIES += thingino-live555
-	RAPTOR_CFLAGS += -DRSD_USE_LIVE555
+ifeq ($(BR2_PACKAGE_THINGINO_RAPTOR_OPUS),y)
+THINGINO_RAPTOR_MAKE_OPTS += OPUS=1
+THINGINO_RAPTOR_DEPENDENCIES += opus
 endif
 
-# RMR recording -- optional ffmpeg for muxing
-ifeq ($(BR2_PACKAGE_RAPTOR_RECORDER_FFMPEG),y)
-	RAPTOR_DEPENDENCIES += thingino-ffmpeg
-	RAPTOR_CFLAGS += -DRMR_USE_FFMPEG
+ifeq ($(BR2_PACKAGE_THINGINO_RAPTOR_TLS),y)
+THINGINO_RAPTOR_MAKE_OPTS += TLS=1
+THINGINO_RAPTOR_DEPENDENCIES += mbedtls
 endif
 
-# RSP stream push -- requires libcurl
-ifeq ($(BR2_PACKAGE_RAPTOR_PUSH),y)
-	RAPTOR_DEPENDENCIES += thingino-libcurl
-endif
-
-# JSON config parser
-ifeq ($(BR2_PACKAGE_CJSON),y)
-	RAPTOR_DEPENDENCIES += cjson
-else
-	RAPTOR_DEPENDENCIES += json-c
-endif
-
-# C library shim for vendor SDK compatibility
-ifeq ($(BR2_TOOLCHAIN_USES_MUSL),y)
-	RAPTOR_DEPENDENCIES += ingenic-musl
-	RAPTOR_SHIM_LIB = -lmuslshim
-endif
-
-ifeq ($(BR2_TOOLCHAIN_USES_UCLIBC),y)
-	RAPTOR_DEPENDENCIES += ingenic-uclibc
-	RAPTOR_SHIM_LIB = -luclibcshim
-endif
-
-# --- Compiler flags ---
-
-# Inherit architecture-specific flags (critical for XBurst: -mno-fused-madd)
-RAPTOR_CFLAGS += $(TARGET_CFLAGS)
-
-# Platform define: -DPLATFORM_T31, -DPLATFORM_T40, etc.
-RAPTOR_CFLAGS += -DPLATFORM_$(shell echo $(SOC_FAMILY) | tr a-z A-Z)
-
-ifeq ($(KERNEL_VERSION),4.4.94)
-	RAPTOR_CFLAGS += -DKERNEL_VERSION_4
-endif
-
-# Ingenic SDK include paths
-RAPTOR_CFLAGS += \
-	-I$(STAGING_DIR)/usr/include
-
-ifeq ($(BR2_TOOLCHAIN_USES_GLIBC),y)
-	RAPTOR_CFLAGS += -DLIBC_GLIBC
-endif
-
-ifeq ($(BR2_TOOLCHAIN_USES_UCLIBC),y)
-	RAPTOR_CFLAGS += -DLIBC_UCLIBC
-endif
-
-# --- Linker flags ---
-
-RAPTOR_LDFLAGS += $(TARGET_LDFLAGS) \
-	-L$(STAGING_DIR)/usr/lib \
-	-L$(TARGET_DIR)/usr/lib \
-	-Wl,--no-as-needed $(RAPTOR_SHIM_LIB) -Wl,--as-needed
-
-# --- Debug build ---
-
-ifeq ($(BR2_PACKAGE_RAPTOR_DEBUG),y)
-	RAPTOR_CFLAGS += -O0 -g -fno-omit-frame-pointer
-	RAPTOR_CFLAGS += -fstack-protector-strong -D_FORTIFY_SOURCE=2
-	RAPTOR_CFLAGS += -DDEBUG_BUILD=1
-
-ifneq ($(BR2_TOOLCHAIN_USES_MUSL),y)
-	RAPTOR_CFLAGS += -fsanitize=address
-	RAPTOR_LDFLAGS += -fsanitize=address
-endif
-
-	RAPTOR_STRIP_BINARY = NO
-	RAPTOR_CMAKE_OPTS += -DCMAKE_BUILD_TYPE=Debug
-else
-	RAPTOR_CFLAGS += -Os
-	RAPTOR_STRIP_BINARY = YES
-	RAPTOR_CMAKE_OPTS += -DCMAKE_BUILD_TYPE=Release
-endif
-
-# --- Map SOC_FAMILY to RSS_SOC ---
-
-RAPTOR_SOC_MAP_t20 = T20
-RAPTOR_SOC_MAP_t21 = T21
-RAPTOR_SOC_MAP_t23 = T23
-RAPTOR_SOC_MAP_t30 = T30
-RAPTOR_SOC_MAP_t31 = T31
-RAPTOR_SOC_MAP_t32 = T32
-RAPTOR_SOC_MAP_t40 = T40
-RAPTOR_SOC_MAP_t41 = T41
-RAPTOR_RSS_SOC = $(RAPTOR_SOC_MAP_$(SOC_FAMILY))
-
-# --- CMake build ---
-
-RAPTOR_CONF_OPTS += \
-	-DCMAKE_TOOLCHAIN_FILE=$(@D)/cmake/mips-linux-gnu.cmake \
-	-DCROSS_COMPILE=$(TARGET_CROSS) \
-	-DRSS_SOC=$(RAPTOR_RSS_SOC) \
-	-DCMAKE_C_FLAGS="$(RAPTOR_CFLAGS)" \
-	-DCMAKE_EXE_LINKER_FLAGS="$(RAPTOR_LDFLAGS)" \
-	$(RAPTOR_CMAKE_OPTS)
-
-define RAPTOR_CONFIGURE_CMDS
-	mkdir -p $(@D)/build
-	cd $(@D)/build && $(TARGET_MAKE_ENV) cmake \
-		$(RAPTOR_CONF_OPTS) \
-		$(@D)
+define THINGINO_RAPTOR_BUILD_CMDS
+    $(MAKE) PLATFORM=$(PLATFORM) CROSS_COMPILE=$(TARGET_CROSS) \
+        SYSROOT=$(STAGING_DIR) $(THINGINO_RAPTOR_MAKE_OPTS) \
+        -C $(@D) rvd rsd rad rhd rod ric rmr rmd raptorctl ringdump rac
 endef
 
-define RAPTOR_BUILD_CMDS
-	$(TARGET_MAKE_ENV) $(MAKE) -C $(@D)/build
+define THINGINO_RAPTOR_INSTALL_TARGET_CMDS
+    $(foreach d,rvd rsd rad rhd rod ric rmr rmd,\
+        $(INSTALL) -D -m 0755 $(@D)/$(d)/$(d) $(TARGET_DIR)/usr/bin/$(d)$(sep))
+    $(foreach t,raptorctl ringdump rac,\
+        if [ -f $(@D)/$(t)/$(t) ]; then \
+            $(INSTALL) -D -m 0755 $(@D)/$(t)/$(t) $(TARGET_DIR)/usr/bin/$(t); \
+        fi$(sep))
+    $(INSTALL) -D -m 0644 $(@D)/config/raptor.conf $(TARGET_DIR)/etc/raptor.conf
+    $(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/S31raptor \
+        $(TARGET_DIR)/etc/init.d/S31raptor
 endef
-
-define RAPTOR_INSTALL_TARGET_CMDS
-	# Core daemons (always installed)
-	$(INSTALL) -D -m 0755 $(@D)/build/daemons/rvd/rvd \
-		$(TARGET_DIR)/usr/bin/rvd
-	$(INSTALL) -D -m 0755 $(@D)/build/daemons/rad/rad \
-		$(TARGET_DIR)/usr/bin/rad
-	$(INSTALL) -D -m 0755 $(@D)/build/daemons/ric/ric \
-		$(TARGET_DIR)/usr/bin/ric
-
-	# CLI tool
-	$(INSTALL) -D -m 0755 $(@D)/build/tools/raptorctl/raptorctl \
-		$(TARGET_DIR)/usr/bin/raptorctl
-
-	# Optional daemons
-	if [ -f $(@D)/build/daemons/rod/rod ]; then \
-		$(INSTALL) -D -m 0755 $(@D)/build/daemons/rod/rod \
-			$(TARGET_DIR)/usr/bin/rod; \
-	fi
-	$(INSTALL) -D -m 0755 $(@D)/build/daemons/rsd/rsd \
-		$(TARGET_DIR)/usr/bin/rsd
-	if [ -f $(@D)/build/daemons/rmr/rmr ]; then \
-		$(INSTALL) -D -m 0755 $(@D)/build/daemons/rmr/rmr \
-			$(TARGET_DIR)/usr/bin/rmr; \
-	fi
-	if [ -f $(@D)/build/daemons/rsp/rsp ]; then \
-		$(INSTALL) -D -m 0755 $(@D)/build/daemons/rsp/rsp \
-			$(TARGET_DIR)/usr/bin/rsp; \
-	fi
-	if [ -f $(@D)/build/daemons/rv4/rv4 ]; then \
-		$(INSTALL) -D -m 0755 $(@D)/build/daemons/rv4/rv4 \
-			$(TARGET_DIR)/usr/bin/rv4; \
-	fi
-	if [ -f $(@D)/build/daemons/rmc/rmc ]; then \
-		$(INSTALL) -D -m 0755 $(@D)/build/daemons/rmc/rmc \
-			$(TARGET_DIR)/usr/bin/rmc; \
-	fi
-
-	# Configuration
-	$(INSTALL) -D -m 0644 $(@D)/config/raptor.json \
-		$(TARGET_DIR)/etc/raptor.json
-
-	# Init script
-	$(INSTALL) -D -m 0755 $(@D)/config/S31raptor \
-		$(TARGET_DIR)/etc/init.d/S31raptor
-
-	# Font
-	$(INSTALL) -D -m 0644 $(@D)/res/default.ttf \
-		$(TARGET_DIR)/usr/share/fonts/default.ttf
-
-	# Strip binaries unless debug build
-	if [ "$(RAPTOR_STRIP_BINARY)" = "YES" ]; then \
-		for bin in rvd rad rod rsd rmr rsp rv4 ric rmc raptorctl; do \
-			[ -f $(TARGET_DIR)/usr/bin/$$bin ] && \
-				$(TARGET_CROSS)strip $(TARGET_DIR)/usr/bin/$$bin || true; \
-		done; \
-	fi
-
-	# Debug build: install unstripped binaries to NFS
-	if [ "$(BR2_PACKAGE_RAPTOR_DEBUG)" = "y" ] && [ -n "$(BR2_THINGINO_NFS)" ]; then \
-		mkdir -p $(BR2_THINGINO_NFS)/$(CAMERA)/usr/bin; \
-		for bin in rvd rad rod rsd rmr rsp rv4 ric rmc raptorctl; do \
-			[ -f $(@D)/build/daemons/$$bin/$$bin ] && \
-				$(INSTALL) -D -m 0755 $(@D)/build/daemons/$$bin/$$bin \
-					$(BR2_THINGINO_NFS)/$(CAMERA)/usr/bin/$$bin-debug || true; \
-		done; \
-		[ -f $(@D)/build/tools/raptorctl/raptorctl ] && \
-			$(INSTALL) -D -m 0755 $(@D)/build/tools/raptorctl/raptorctl \
-				$(BR2_THINGINO_NFS)/$(CAMERA)/usr/bin/raptorctl-debug || true; \
-	fi
-endef
-
-$(eval $(generic-package))
-```
-
-### 3.2 Config.in
-
-```kconfig
-config BR2_PACKAGE_RAPTOR
-	bool "raptor"
-	depends on BR2_PACKAGE_INGENIC_LIB
-	help
-	  Raptor Streaming System - microservices streaming platform
-	  for Ingenic SoC IP cameras.
-
-if BR2_PACKAGE_RAPTOR
-
-config BR2_PACKAGE_RAPTOR_OSD
-	bool "OSD overlay daemon (ROD)"
-	default y
-	select BR2_PACKAGE_LIBSCHRIFT
-	help
-	  Build the OSD overlay daemon with libschrift text rendering.
-
-config BR2_PACKAGE_RAPTOR_RTSP_LIVE555
-	bool "RTSP server uses live555"
-	default n
-	help
-	  Use live555 for RSD RTSP server. If disabled, uses built-in
-	  minimal RTSP implementation.
-
-config BR2_PACKAGE_RAPTOR_RECORDER_FFMPEG
-	bool "Recorder uses ffmpeg muxer"
-	default n
-	select BR2_PACKAGE_THINGINO_FFMPEG
-	help
-	  Use ffmpeg for RMR recording. If disabled, uses built-in
-	  lightweight MP4 muxer.
-
-config BR2_PACKAGE_RAPTOR_PUSH
-	bool "Stream push daemon (RSP)"
-	default n
-	select BR2_PACKAGE_THINGINO_LIBCURL
-	help
-	  Build the RTMP/RTSP stream push daemon.
-
-config BR2_PACKAGE_RAPTOR_DEBUG
-	bool "Debug build"
-	default n
-	help
-	  Build with debug symbols, sanitizers, and no optimization.
-	  Requires BR2_THINGINO_NFS for debug binary installation.
-
-endif # BR2_PACKAGE_RAPTOR
 ```
 
 ---
 
-## 4. FindIngenicSDK.cmake
+## 4. ASAN Debug Build (x86)
 
-```cmake
-# cmake/FindIngenicSDK.cmake
-#
-# Finds Ingenic SDK headers and libraries in the Buildroot staging dir.
-#
-# Sets:
-#   INGENIC_SDK_FOUND
-#   INGENIC_SDK_INCLUDE_DIRS
-#   INGENIC_SDK_LIBRARIES
+`build-asan.sh` builds all daemons natively on x86 with AddressSanitizer
+and UndefinedBehaviorSanitizer. RVD and RAD use a mock HAL
+(`tests/mock_hal.c`) that stubs all IMP SDK calls. All other daemons
+build without HAL.
 
-if(NOT DEFINED CMAKE_SYSROOT)
-    message(FATAL_ERROR "CMAKE_SYSROOT not set -- cannot find Ingenic SDK")
-endif()
-
-set(INGENIC_SDK_INCLUDE_DIRS "${CMAKE_SYSROOT}/usr/include")
-
-# Core vendor libraries
-set(_sdk_libs imp isp alog sysutils)
-set(INGENIC_SDK_LIBRARIES "")
-
-foreach(_lib ${_sdk_libs})
-    find_library(_found_${_lib} NAMES ${_lib}
-        PATHS "${CMAKE_SYSROOT}/usr/lib"
-        NO_DEFAULT_PATH)
-    if(_found_${_lib})
-        list(APPEND INGENIC_SDK_LIBRARIES ${_found_${_lib}})
-    endif()
-endforeach()
-
-# Always need pthread and rt
-list(APPEND INGENIC_SDK_LIBRARIES pthread rt)
-
-include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(IngenicSDK DEFAULT_MSG
-    INGENIC_SDK_INCLUDE_DIRS INGENIC_SDK_LIBRARIES)
-```
-
----
-
-## 5. x86 Stub Build
-
-For development on a workstation without Ingenic hardware. The stub HAL
-generates synthetic frames (color bars with incrementing counter) and
-synthetic audio (sine wave). All IPC (SHM rings, OSD double-buffers,
-control sockets) works identically to the target build.
-
-### 5.1 Building
+### 4.1 Building
 
 ```sh
-mkdir build-x86 && cd build-x86
-cmake -DRSS_SOC=STUB ..
-make -j$(nproc)
+./build-asan.sh          # build all to asan-out/
+./build-asan.sh clean    # clean
 ```
 
-No cross-compilation toolchain, no Ingenic SDK. The stub HAL
-(`hal/src/hal_stub.c`) implements the full `rss_hal_ops_t` vtable:
+### 4.2 Testing
 
-- `init()`: no-op (no hardware to initialize)
-- `enc_poll()`: sleeps for 1/fps_num seconds, then returns 0
-- `enc_get_frame()`: generates a synthetic H264 IDR/slice frame
-  containing color bar pattern with embedded timestamp
-- `audio_read_frame()`: generates PCM silence or a 1kHz sine tone
-- `isp_get_exposure()`: returns a fixed synthetic exposure value
-- All ISP tuning functions: store values locally, log the call
-- `osd_*`: track region state in memory, no actual rendering
+```sh
+cd asan-out/
+./create_rings &         # create synthetic SHM rings
+./rvd -c ../config/raptor.conf -f -d &
+./rsd -c ../config/raptor.conf -f -d &
+./rhd -c ../config/raptor.conf -f -d &
+# Exercise with ffprobe, curl, raptorctl
+# Ctrl-C — ASan prints leak report on exit
+```
 
-### 5.2 What Works on x86
+### 4.3 What Works on x86
 
-- Full daemon lifecycle (start, run, stop, restart)
-- SHM ring buffer producer/consumer (all daemons)
-- OSD double-buffer protocol (ROD -> RVD)
-- Control socket protocol (raptorctl -> all daemons)
-- RTSP server (RSD serves synthetic streams to VLC/ffplay)
-- Recording (RMR writes MP4 with synthetic frames)
-- Configuration parsing
-- Logging
+- Full daemon lifecycle (start, run, stop)
+- SHM ring producer/consumer
+- OSD double-buffer protocol
+- Control socket protocol (raptorctl)
+- RTSP server (serves synthetic streams)
+- Recording (writes fMP4 with synthetic frames)
+- Configuration parsing and logging
 
-### 5.3 What Does Not Work on x86
+### 4.4 What Does Not Work on x86
 
 - Actual video encoding (stub frames are synthetic NAL units)
-- ISP tuning effects (values are stored but not applied)
-- GPIO/IR-cut control (simulated in software)
-- Motor control (simulated)
-- Real-time performance characteristics (x86 timing differs from MIPS)
-
-### 5.4 Stub Capabilities
-
-The stub HAL reports capabilities similar to T31 by default:
-
-```c
-static const rss_hal_caps_t stub_caps = {
-    .soc_name = "STUB",
-    .sdk_version = "stub-1.0",
-    .max_fs_channels = 3,
-    .max_enc_channels = 8,
-    .max_osd_groups = 4,
-    .max_osd_regions = 8,
-    .has_h265 = true,
-    .has_rotation = true,
-    .has_hw_rotation = false,
-    .has_fcrop = true,
-    .has_capped_rc = true,
-    .has_gop_attr = true,
-    .has_set_bitrate = true,
-    .has_bcsh_hue = true,
-    /* ... */
-};
-```
-
-Override individual caps via environment variables for testing graceful
-degradation:
-
-```sh
-RSS_STUB_HAS_H265=0 ./rvd -c raptor.json    # simulate T20 (no H265)
-```
+- ISP tuning effects (values stored but not applied)
+- GPIO/IR-cut control
+- Real-time timing characteristics
 
 ---
 
-## 6. Debug Build with Sanitizers
-
-### 6.1 Native Debug (x86)
-
-```sh
-mkdir build-debug && cd build-debug
-cmake -DRSS_SOC=STUB \
-      -DCMAKE_BUILD_TYPE=Debug \
-      -DRSS_SANITIZERS=ON ..
-make -j$(nproc)
-```
-
-When `RSS_SANITIZERS=ON`, the CMake config adds:
-
-```cmake
-if(RSS_SANITIZERS)
-    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
-    add_link_options(-fsanitize=address,undefined)
-    message(STATUS "Raptor: ASan + UBSan enabled")
-endif()
-```
-
-This enables:
-- **AddressSanitizer**: heap/stack buffer overflows, use-after-free,
-  double-free, memory leaks (at exit)
-- **UndefinedBehaviorSanitizer**: signed integer overflow, null pointer
-  dereference, misaligned access, shift overflow
-
-### 6.2 Cross-Compiled Debug (Target)
-
-```sh
-# In Buildroot menuconfig, enable BR2_PACKAGE_RAPTOR_DEBUG=y
-# This sets -O0 -g and conditionally adds ASan (glibc/uclibc only)
-make raptor-rebuild
-```
-
-On musl-based toolchains, ASan is not available. The build falls back to
-stack protectors and `_FORTIFY_SOURCE=2`.
-
-Debug binaries are installed to NFS (not to the firmware image) to avoid
-bloating the flash:
-
-```
-$BR2_THINGINO_NFS/$CAMERA/usr/bin/rvd-debug
-$BR2_THINGINO_NFS/$CAMERA/usr/bin/rad-debug
-...
-```
-
-Run on target via NFS mount:
-
-```sh
-mount -t nfs devhost:/nfs /mnt/nfs
-/mnt/nfs/mydevice/usr/bin/rvd-debug -c /etc/raptor.json
-```
-
-### 6.3 Valgrind (x86 Stub)
-
-Valgrind works on the x86 stub build for deeper memory analysis:
-
-```sh
-valgrind --leak-check=full --track-origins=yes ./rvd -c raptor.json &
-valgrind --leak-check=full ./rsd -c raptor.json &
-# ... run test, then stop daemons
-```
-
-Valgrind is too slow for target MIPS, so it is only used on x86 stubs.
-
----
-
-## 7. build.sh Convenience Script
-
-`build.sh` in the repository root is a convenience wrapper around the
-CMake cross-compilation workflow. It takes a platform argument to select
-the target SoC and automatically locates the appropriate Buildroot
-staging directory from the thingino-firmware output tree.
-
-### 7.1 Usage
-
-```sh
-./build.sh t20      # build for T20
-./build.sh t21      # build for T21
-./build.sh t23      # build for T23
-./build.sh t31      # build for T31 (primary target)
-```
-
-### 7.2 Supported Platforms
-
-| Argument | SoC | SDK Generation | HAL Source |
-|----------|-----|---------------|------------|
-| `t20` | T20 | Old SDK | `hal_gen1.c` |
-| `t21` | T21 | Old SDK | `hal_gen1.c` |
-| `t23` | T23 | Old SDK (extended) | `hal_t23.c` |
-| `t31` | T31 | New SDK | `hal_t31.c` |
-
-### 7.3 Profile Selection
-
-The script auto-selects the compiler toolchain and staging directory
-from the thingino-firmware output directory. For a given platform
-argument (e.g. `t31`), `build.sh` looks for:
-
-```
-~/projects/thingino/thingino-firmware/output/<profile>/staging/
-```
-
-where `<profile>` is the Buildroot profile that matches the platform.
-The `RSS_SOC` CMake variable is set to the uppercase SoC name (T31,
-T20, etc.) and `CMAKE_TOOLCHAIN_FILE` points to
-`cmake/mips-linux-gnu.cmake`.
-
----
-
-## 8. Dependency List
+## 5. Dependency List
 
 | Dependency | Used By | Purpose | Required? |
 |-----------|---------|---------|-----------|
-| ingenic-lib | HAL (all SoC builds) | libimp.so, libisp.so, libalog.so vendor SDK | Yes (target) |
-| ingenic-headers | HAL | IMP SDK headers | Yes (target) |
-| ingenic-musl or ingenic-uclibc | all daemons | C library shim for vendor SDK | Yes (per toolchain) |
-| libschrift | ROD | TrueType font rendering for OSD text (~1300 lines, no deps) | Yes for ROD |
-| cJSON or json-c | librss_common | JSON configuration file parsing | Yes (one of) |
-| live555 | RSD (optional) | RTSP/RTP server framework | Optional |
-| libcurl | RSP | HTTP/RTMP client for stream push | Yes for RSP |
-| ffmpeg (libavformat) | RMR (optional) | MP4/MKV muxing for recording | Optional |
-| pthread | all daemons | POSIX threads | Yes (system) |
-| librt | all daemons | shm_open, clock_gettime | Yes (system) |
+| ingenic-lib | HAL (RVD, RAD) | libimp.so, libalog.so, libsysutils.so | Yes (target) |
+| libschrift | ROD | TrueType font rendering for OSD text | Yes for ROD |
+| compy | RSD | RTSP protocol, RTP transport, SDP, auth | Yes for RSD |
+| mbedTLS | RSD (optional) | TLS for RTSPS | Only if TLS=1 |
+| libfaac | RAD (optional) | AAC-LC encoding | Only if AAC=1 |
+| libhelix-aac | RAD (optional) | AAC decoding (backchannel) | Only if AAC=1 |
+| libopus | RAD (optional) | Opus encoding | Only if OPUS=1 |
+| libhelix-mp3 | RAD (optional) | MP3 decoding (backchannel) | Only if MP3=1 |
+| ingenic-uclibc | all daemons | uclibc shim for vendor SDK compat | Yes (uclibc toolchain) |
+| ingenic-musl | all daemons | musl shim for vendor SDK compat | Yes (musl toolchain) |
+| pthread, rt | all daemons | POSIX threads, SHM, clock | Yes (system) |
 
-### 7.1 Minimal Build (Smallest Footprint)
+**Note:** No JSON library dependency. The config parser (`rss_config.c`)
+reads INI-format files. The JSON helpers (`rss_json_get_str/int`) are
+lightweight string matchers for control socket IPC — no external parser.
 
-For a minimal streaming-only camera:
+### 5.1 Minimal Build
+
+For a streaming-only camera (no recording, no OSD, no audio):
 
 ```
 Daemons: RVD + RSD
-Dependencies: ingenic-lib, ingenic-headers, cJSON, pthread, rt
-Optional: none
-Approximate binary sizes (stripped):
-  rvd: ~80KB
-  rsd: ~60KB
-  raptorctl: ~20KB
+Dependencies: ingenic-lib, compy, pthread, rt
+Binary sizes (stripped): rvd ~195KB, rsd ~322KB, raptorctl ~73KB
 ```
 
-### 7.2 Full Build
+### 5.2 Full Build
 
 ```
 Daemons: RVD + RAD + ROD + RSD + RHD + RMR + RIC + RMD
-Planned (not yet built): RSP + RV4 + RMC
+Tools: raptorctl, ringdump, rac
+Planned (not yet built): RSP, RV4, RMC
 Dependencies: all of the above
-Approximate total binary size (stripped): ~400KB
+Approximate total (stripped): ~1MB
 ```
 
 ---
 
-## 9. RMR Build Notes
+## 6. Common Library (raptor-common)
 
-RMR (`daemons/rmr/`) is a standard daemon target in the top-level
-`CMakeLists.txt` (`add_subdirectory(daemons/rmr)`). It links against
-`rss_ipc` and `rss_common` only — no HAL dependency, no libavformat
-required when the built-in fMP4 muxer is used.
+All daemons share the raptor-common library which provides:
 
-```cmake
-# daemons/rmr/CMakeLists.txt (summary)
-add_executable(rmr src/rmr_main.c src/rmr_muxer.c)
-target_link_libraries(rmr PRIVATE rss_ipc rss_common pthread rt)
-install(TARGETS rmr DESTINATION /usr/bin)
-```
-
-The `BR2_PACKAGE_RAPTOR_RECORDER_FFMPEG` Buildroot option is available
-but not required. When disabled (the default), RMR uses the built-in
-muxer and has no additional library dependencies.
-
----
-
-## 10. build-asan.sh
-
-`build-asan.sh` in the repository root builds all daemons (including
-RMR) for the x86_64 host with AddressSanitizer and
-UndefinedBehaviorSanitizer enabled. It does not require the
-cross-compilation toolchain or Ingenic SDK.
-
-Daemons covered: RVD (mock HAL), RAD (mock HAL), RSD, RHD, ROD, RIC,
-**RMR** (ring mock via `tests/create_rings.c`).
-
-RMR-specific test setup used by `build-asan.sh`:
-- Mock rings are pre-populated with continuous H.264 NAL units and audio
-  frames so RMR can exercise its reader thread without RVD running.
-- Segment rotation is exercised by setting a short `segment_minutes`
-  value (e.g. `1`) in the test config.
-
-All outputs land in `asan-out/`. Run with:
-
-```sh
-./build-asan.sh
-./asan-out/create_rings &
-./asan-out/rmr -c config/raptor-asan-test.json &
-# ... exercise, then:
-kill $(pidof rmr create_rings)
-wait
-# ASan reports printed to stderr on exit
-```
+- **`rss_daemon_init()`** — standard daemon startup: arg parsing
+  (`-c config -f foreground -d debug -h help`), logging, config load,
+  daemonize with PID duplicate check, signal handlers. Eliminates ~30
+  lines of boilerplate per daemon.
+- **`rss_json_get_str()` / `rss_json_get_int()`** — lightweight JSON key
+  lookup for control socket commands. Key length validated, int range
+  checked against INT_MIN/INT_MAX.
+- **`rss_secure_compare()`** — constant-time string comparison for
+  credential checks (prevents timing side-channel attacks).
+- **`rss_config_*()`** — INI config parser (load, get, set, save).
+- **`rss_log_*()`** — syslog or stderr logging with levels.
+- **`rss_daemonize()`** — double-fork, PID file, duplicate instance check.
+- **`rss_signal_init()`** — SIGTERM/SIGINT/SIGHUP/SIGPIPE handlers.
+- **Utilities**: `rss_timestamp_us()`, `rss_strlcpy()`, `rss_trim()`,
+  `rss_mkdir_p()`, `rss_read_file()`, `rss_write_file_atomic()`.
