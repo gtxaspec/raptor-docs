@@ -323,9 +323,22 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Browser support**: Chrome, Edge, Safari. Firefox requires mbedTLS ≥ 3.6.6
   (ClientHello defragmentation, PR #10623).
 - **go2rtc**: Compatible as `webrtc:http://camera:8554/whip` source.
+- **WebTorrent sharing** *(optional, `WEBTORRENT=1`)*: Enables external
+  WebRTC viewing without port forwarding. Camera connects outbound to a
+  public WebTorrent tracker (`wss://tracker.openwebtorrent.com`) via TLS
+  WebSocket and announces a share room. Viewers open a static HTML page
+  with the share key in the URL fragment (`share.html#key=...`). The
+  tracker relays SDP offers/answers between viewer and camera. STUN
+  discovers the camera's public address (srflx candidate), and ICE
+  connectivity checks punch through NAT. Config: `[webtorrent]` section
+  — `enabled`, `tracker`, `stun_server`, `stun_port`, `viewer_url`,
+  `share_key` (optional, min 4 chars; auto-generated if omitted).
 - **Client listing**: `raptorctl rwd clients` shows connected clients
   with IP, stream index, sending state, ICE and DTLS status.
+- **Share URL**: `raptorctl rwd share` shows the current WebTorrent share
+  URL. `raptorctl rwd share-rotate` generates a new random key.
 - **Build**: Requires `TLS=1` and `MBEDTLS_SSL_DTLS_SRTP` enabled.
+  WebTorrent requires `WEBTORRENT=1` (adds ~4KB to binary).
 - **Config**: `[webrtc]` section — `enabled`, `udp_port`, `http_port`,
   `max_clients`, `cert`, `key`.
 - **Dependencies**: librss_ipc, librss_common, libcompy, libmbedtls.
@@ -446,6 +459,8 @@ These daemons control hardware peripherals and do not process frame data.
   - `raptorctl rad set-agc <0|1> [target] [compression]` -- AGC
   - `raptorctl rod set-text <text>` -- change OSD text string
   - `raptorctl ric mode <auto|day|night>` -- set day/night mode
+  - `raptorctl rwd share` -- show WebTorrent share URL
+  - `raptorctl rwd share-rotate` -- generate new share key
   - `raptorctl memory` -- show per-daemon memory usage (private/shared/RSS).
     Private = memory unique to that daemon. Shared = SHM rings and shared
     libraries mapped by multiple daemons. RSS = sum (overcounts shared pages).

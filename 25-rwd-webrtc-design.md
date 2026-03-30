@@ -286,6 +286,73 @@ standalone DTLS server without ICE.
 
 ---
 
+## WebTorrent External Sharing (optional)
+
+RWD supports external WebRTC viewing without port forwarding via
+WebTorrent tracker signaling. Build with `WEBTORRENT=1`.
+
+### How it works
+
+1. Camera connects outbound (TLS WebSocket) to a public WebTorrent
+   tracker (`wss://tracker.openwebtorrent.com`) and announces a share
+   room identified by `base64(SHA-256("raptor:" + share_key))`.
+2. Camera discovers its public IP:port via STUN binding request to
+   a public STUN server, adds the result as a server-reflexive (srflx)
+   ICE candidate in SDP answers.
+3. Viewer opens `share.html#key=<share_key>` in a browser. The page
+   connects to the same tracker, computes the same info_hash, and sends
+   an SDP offer through the tracker.
+4. Camera receives the offer, creates a client (same as WHIP), generates
+   an SDP answer, and sends it back through the tracker.
+5. Camera sends ICE connectivity checks to the browser's candidates
+   (NAT hole punching). Browser's ICE checks reach the camera's srflx
+   address. Direct P2P connection established.
+6. DTLS handshake → SRTP → video+audio flows directly, no relay.
+
+### SDP size limit
+
+Public WebTorrent trackers silently drop large messages. Chrome's SDP
+offers include dozens of unused codecs (~8KB). The viewer page strips
+the SDP to H264 + Opus only (~1KB) before sending through the tracker.
+
+### Share key
+
+- Auto-generated (31 random alphanumeric chars) if not configured.
+- Configurable via `[webtorrent] share_key`. A 4-char deterministic
+  prefix (XOR-folded from the key) is prepended to prevent tracker
+  collisions between devices with the same user key.
+- `raptorctl rwd share` shows the current share URL.
+- `raptorctl rwd share-rotate` generates a new random key.
+
+### NAT compatibility
+
+- **Full-cone NAT**: Works (srflx candidate reachable from any host).
+- **Port-restricted NAT**: Works (ICE hole punch opens the mapping).
+- **Symmetric NAT**: May not work (srflx mapping differs per destination).
+  Users behind symmetric NAT need a VPN or go2rtc as a proxy.
+
+### Config
+
+```ini
+[webtorrent]
+enabled = true
+# tracker = wss://tracker.openwebtorrent.com
+# stun_server = stun.l.google.com
+# stun_port = 19302
+# viewer_url = https://thingino.com/webrtc/share.html
+# share_key = mySecretKey       # min 4 chars, auto-generated if omitted
+```
+
+### Files
+
+- `rwd/rwd_webtorrent.c` — TLS WebSocket client, tracker protocol,
+  STUN client, share management, thread with auto-reconnect.
+- `rwd/share.html` — Static viewer page (host anywhere).
+- `rwd/rwd_ice.c` — `rwd_ice_send_check()` for NAT hole punching.
+- `rwd/rwd_sdp.c` — Candidate parsing, srflx candidate in SDP answer.
+
+---
+
 ## Verification
 
 1. Build: `./build.sh t31 <output> rwd`
