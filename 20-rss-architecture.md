@@ -121,11 +121,15 @@ ring buffers. Exactly one instance of each runs per camera.
   are replaced with spaces to prevent OSD rendering corruption.
 - **Render loop**: 1Hz cycle — renders all dirty regions, updates SHM
   double-buffers.
+- **Heartbeat**: ROD sends a 1Hz `rss_osd_heartbeat()` (dirty flag
+  only, no buffer swap) on one region per stream, so RVD can detect
+  liveness even when all OSD elements are static.
 - **Why separate**: Font rendering is CPU-intensive relative to the
   frame path. Isolating it lets ROD run at a lower priority without
-  risking frame drops. ROD can also be killed and restarted to change
-  OSD layout without interrupting the video stream (existing overlay
-  just freezes until ROD restarts).
+  risking frame drops. ROD can be killed and restarted — RVD detects
+  the restart via SHM inode change (clean exit) or dirty-flag timeout
+  (crash/kill -9), clears the OSD to transparent, unlinks orphaned SHM,
+  and reopens when ROD comes back.
 
 #### RAD -- Audio Daemon
 
@@ -1032,7 +1036,7 @@ Each daemon is designed to be individually restartable:
 | Daemon | Restart Impact | State Lost | Recovery |
 |--------|---------------|------------|----------|
 | RVD | **Full pipeline restart.** All consumers lose their rings. | All SHM rings destroyed. | Consumers detect stale ring (magic/version mismatch or unlink) and reconnect. |
-| ROD | OSD overlays freeze at last rendered frame. | Rendered bitmap state, glyph cache. | New ROD instance recreates OSD SHM double-buffers. RVD OSD thread detects new dirty flags. OSD resumes. |
+| ROD | OSD cleared to transparent within ~3s. | Rendered bitmap state, glyph cache. | RVD detects restart (inode change) or crash (3s dirty timeout), clears OSD, unlinks orphaned SHM. New ROD recreates SHM, RVD reopens and OSD resumes. |
 | RAD | Audio stream drops. | Audio encoder state. | New RAD instance creates audio ring. Consumers detect new ring and reattach. |
 | RSD | RTSP clients disconnect. | Client sessions, RTP sequence numbers. | Clients reconnect. New RSD opens existing rings. |
 | RMR | Current recording file may be truncated. | Muxer state, unflushed data. | New RMR starts a new file. Previous file recoverable if moov was written. |
