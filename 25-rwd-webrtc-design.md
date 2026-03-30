@@ -339,7 +339,7 @@ enabled = true
 # tracker = wss://tracker.openwebtorrent.com
 # stun_server = stun.l.google.com
 # stun_port = 19302
-# viewer_url = https://thingino.com/webrtc/share.html
+# viewer_url = https://viewer.thingino.com/share.html
 # share_key = mySecretKey       # min 4 chars, auto-generated if omitted
 ```
 
