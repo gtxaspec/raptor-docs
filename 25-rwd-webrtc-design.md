@@ -353,14 +353,89 @@ enabled = true
 
 ---
 
+## Backchannel (Two-Way Audio)
+
+Browser microphone audio flows back to the camera speaker:
+
+```
+Browser mic → getUserMedia → RTCPeerConnection (sendrecv audio)
+  → SRTP-encrypted Opus RTP packets
+  → RWD UDP socket (demuxed by first byte, same port as outgoing)
+  → compy_srtp_recv_unprotect (decrypt with DTLS-derived recv key)
+  → Compy_RtpReceiver_feed (RTP demux by PT)
+  → rwd_bc_recv_t callback (Opus decode via libopus, 48kHz→16kHz)
+  → "speaker" ring (PCM16, 16kHz, mono)
+  → RAD ao_playback_thread → IMP AO hardware → speaker
+```
+
+### SDP negotiation
+
+- Audio m-line is `a=sendrecv` (camera sends Opus, browser can send back)
+- SDP answer includes both `opus/48000/2` and `PCMU/8000` codecs
+- Browser JS uses `setCodecPreferences([PCMU, Opus])` to prefer PCMU,
+  but falls back to Opus (which the camera decodes via libopus)
+
+### HTTPS requirement
+
+`getUserMedia()` requires a secure context (HTTPS or localhost).
+RWD serves HTTPS by default using the same cert/key as DTLS
+(`[webrtc] https = true`). The Talk button only appears when:
+1. The SDP answer contains `a=sendrecv` (backchannel supported)
+2. `navigator.mediaDevices` is available (HTTPS context)
+
+### PCMU fallback
+
+The backchannel callback handles both codecs:
+- **Opus** (PT from offer): decode via `opus_decode()` at 48kHz, downsample 3:1 to 16kHz
+- **PCMU** (PT 0): G.711 µ-law decode + 8→16kHz upsample (same as RSD backchannel)
+
+### Speaker ring
+
+The backchannel opens (or creates) a `speaker` SHM ring. RAD's AO
+playback thread polls for this ring and plays PCM16 frames to
+hardware. The ring uses `rss_ring_open()` first to reuse an existing
+ring (avoids stale mmap when switching between RTSP and WebRTC
+backchannel sessions).
+
+### RTP/RTCP demux fix
+
+Incoming packets on the shared UDP port are demuxed by `data[1]`:
+- `data[1] >= 200 && <= 209` → SRTCP (use `compy_srtcp_recv_unprotect`)
+- Otherwise → SRTP (use `compy_srtp_recv_unprotect`)
+
+Note: the PT byte must NOT be masked with `& 0x7F` — RTCP types
+200-209 have the high bit set in byte[1], and masking produces
+values 72-81 which would be misidentified as RTP.
+
+---
+
+## A/V Sync
+
+Both video and audio RTP timestamps are derived from `meta.timestamp`
+(IMP's `CLOCK_MONOTONIC_RAW`, microsecond precision) instead of
+per-stream counters. Since both streams reference the same system
+clock, inter-stream drift is zero by construction.
+
+Previous approach (counter-based) drifted ~10.6s/day due to audio
+ADC crystal offset (~16000.5 Hz vs nominal 16000 Hz). Wall-clock
+timestamps eliminate this entirely — measured 7ms delta over 1 hour
+(noise, not drift).
+
+Audio is gated on the first video keyframe so both RTP timelines
+start together.
+
+---
+
 ## Verification
 
 1. Build: `./build.sh t31 <output> rwd`
 2. Config: `[webrtc] enabled = true`, cert/key paths set to valid
    certificate (uhttpd certs work: `/etc/ssl/certs/uhttpd.crt`)
 3. Start RWD alongside other daemons
-4. Open `http://camera:8554/webrtc` in browser
+4. Open `https://camera:8554/webrtc` in browser (HTTPS for Talk button)
 5. Click Connect → WHIP POST → DTLS handshake → video plays
 6. Click Unmute for audio
-7. Verify: sub-second latency, audio+video in sync
-8. Test: multiple clients, disconnect/reconnect, Chrome/Edge/Safari
+7. Click Talk → browser requests mic permission → two-way audio
+8. Verify: sub-second latency, audio+video in sync, backchannel audio clear
+9. Test: multiple clients, disconnect/reconnect, Chrome/Edge/Safari
+10. WebTorrent: open share URL, verify Talk button works over HTTPS
