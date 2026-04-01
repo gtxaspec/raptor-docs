@@ -612,6 +612,38 @@ typedef struct {
     bool has_gop_attr;              /* fine-grained GOP control (T31+) */
     bool has_set_bitrate;           /* dynamic SetChnBitRate (T31+) */
 
+    /* Phase 1: Bandwidth reduction */
+    bool has_smartp_gop;            /* SmartP GOP mode (T31/T40/T41) */
+    bool has_rc_options;            /* RC options bitmask (T31/T40/T41) */
+    bool has_pskip;                 /* P-skip for static scenes (T32) */
+    bool has_srd;                   /* spatial redundancy detection (T32) */
+    bool has_max_pic_size;          /* cap I/P frame size (T32/T41) */
+    bool has_super_frame;           /* oversized frame handling (T21/T32) */
+    bool has_color2grey;            /* drop chroma for B&W mode (T21) */
+
+    /* Phase 2: Quality improvement */
+    bool has_roi;                   /* region of interest QP (T21/T32) */
+    bool has_map_roi;               /* per-MB ROI map (T32) */
+    bool has_qp_bounds_per_frame;   /* separate I/P QP bounds (T32/T41) */
+    bool has_qpg_mode;              /* macroblock QP control mode (T21/T32) */
+    bool has_qpg_ai;                /* AI quality map (T32) */
+    bool has_mbrc;                  /* macroblock rate control (T21) */
+    bool has_enc_denoise;           /* encoder-level denoise (T21) */
+
+    /* Phase 3-6: Error recovery, compliance, operational, JPEG */
+    bool has_gdr;                   /* gradual decoder refresh (T32) */
+    bool has_sei_userdata;          /* SEI user data insertion (T21/T32) */
+    bool has_h264_vui;              /* H.264 VUI parameters (T32) */
+    bool has_h265_vui;              /* H.265 VUI parameters (T32) */
+    bool has_h264_trans;            /* H.264 transform config (T21/T32) */
+    bool has_h265_trans;            /* H.265 transform config (T21/T32) */
+    bool has_enc_crop;              /* encoder-level crop (T32) */
+    bool has_eval_info;             /* encoder stats/eval (T31) */
+    bool has_poll_module;           /* poll all channels (T21/T31/T41) */
+    bool has_resize_mode;           /* encoder resize (T31/T41) */
+    bool has_jpeg_ql;               /* JPEG custom quantization (T21/T41) */
+    bool has_jpeg_qp;               /* JPEG QP control (T32) */
+
     /* --- ISP features --- */
     bool has_multi_sensor;          /* IMPVI_NUM support (T32/T40/T41; T23 via _Sec) */
     bool has_defog;                 /* EnableDefog (T23/T31) */
@@ -934,6 +966,61 @@ typedef struct rss_hal_ops {
      * Returns 0 on success, -ENOTSUP on old SDK SoCs (no-op).
      */
     int (*enc_set_bufshare)(void *ctx, int src_chn, int dst_chn);
+
+    /* ----------------------------------------------------------------
+     * ENCODER ADVANCED FEATURES (Phase 1-6)
+     *
+     * These wrap IMP_Encoder_* APIs that vary by SDK generation.
+     * Each function is a no-op (returns 0) on SoCs that lack it.
+     * Check rss_hal_caps_t flags for runtime availability.
+     * ---------------------------------------------------------------- */
+
+    /* Phase 1: Bandwidth Reduction */
+    int (*enc_set_gop_mode)(void *ctx, int chn, int mode);          /* SmartP/Default/Pyramidal */
+    int (*enc_set_rc_options)(void *ctx, int chn, uint32_t opts);   /* SCN_CHG|STATIC|SKIP bitmask */
+    int (*enc_set_max_same_scene)(void *ctx, int chn, int count);   /* max reuse count */
+    int (*enc_set_pskip)(void *ctx, int chn, int enable);           /* P-skip for static scenes */
+    int (*enc_request_pskip)(void *ctx, int chn);                   /* trigger P-skip now */
+    int (*enc_set_srd)(void *ctx, int chn, int enable);             /* spatial redundancy detection */
+    int (*enc_set_max_pic_size)(void *ctx, int chn, int i_size, int p_size); /* cap frame sizes */
+    int (*enc_set_super_frame)(void *ctx, int chn, int mode);       /* oversized frame handling */
+    int (*enc_set_color2grey)(void *ctx, int chn, int enable);      /* drop chroma (B&W) */
+
+    /* Phase 2: Quality Improvement */
+    int (*enc_set_roi)(void *ctx, int chn, const void *roi_cfg);    /* region of interest */
+    int (*enc_get_roi)(void *ctx, int chn, void *roi_cfg);
+    int (*enc_set_map_roi)(void *ctx, int chn, const void *map);    /* per-MB ROI map */
+    int (*enc_set_qp_bounds_per_frame)(void *ctx, int chn, int i_min, int i_max,
+                                       int p_min, int p_max);       /* separate I/P QP */
+    int (*enc_set_qpg_mode)(void *ctx, int chn, int mode);          /* MB-level QP control */
+    int (*enc_set_qpg_ai)(void *ctx, int chn, const void *map);     /* AI quality map */
+    int (*enc_set_mbrc)(void *ctx, int chn, int enable);             /* macroblock RC */
+    int (*enc_set_denoise)(void *ctx, int chn, int enable);          /* encoder denoise */
+
+    /* Phase 3: Error Recovery */
+    int (*enc_set_gdr)(void *ctx, int chn, int enable);              /* gradual decoder refresh */
+    int (*enc_request_gdr)(void *ctx, int chn);
+    int (*enc_insert_userdata)(void *ctx, int chn, const void *data, int len); /* SEI */
+
+    /* Phase 4: Codec Compliance */
+    int (*enc_set_h264_vui)(void *ctx, int chn, const void *vui);
+    int (*enc_get_h264_vui)(void *ctx, int chn, void *vui);
+    int (*enc_set_h265_vui)(void *ctx, int chn, const void *vui);
+    int (*enc_get_h265_vui)(void *ctx, int chn, void *vui);
+    int (*enc_set_h264_trans)(void *ctx, int chn, const void *trans);
+    int (*enc_get_h264_trans)(void *ctx, int chn, void *trans);
+    int (*enc_set_h265_trans)(void *ctx, int chn, const void *trans);
+    int (*enc_get_h265_trans)(void *ctx, int chn, void *trans);
+
+    /* Phase 5: Operational */
+    int (*enc_set_crop)(void *ctx, int chn, int x, int y, int w, int h);  /* digital zoom */
+    int (*enc_get_eval_info)(void *ctx, int chn, void *info);        /* encoder stats */
+    int (*enc_poll_module)(void *ctx, uint32_t chn_mask, int timeout_ms); /* poll all channels */
+    int (*enc_set_resize_mode)(void *ctx, int chn, int mode);
+
+    /* Phase 6: JPEG */
+    int (*enc_set_jpeg_ql)(void *ctx, int chn, const void *ql);     /* custom quant tables */
+    int (*enc_set_jpeg_qp)(void *ctx, int chn, int qp);
 
 
     /* ================================================================
