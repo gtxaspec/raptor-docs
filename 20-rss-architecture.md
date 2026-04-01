@@ -1457,7 +1457,91 @@ logic as RSD).
 
 ---
 
-## 10. Dynamic JPEG Buffer Sizing
+## 10. Latency
+
+### 10.1 Pipeline Latency (measured)
+
+Server-side pipeline latency from sensor capture to ring availability
+is ~2ms average (measured with `ringdump main -l`):
+
+```
+--- latency ---
+Min:  -1.3 ms    (jitter from frame timing)
+Avg:   1.9 ms
+Max:   5.3 ms
+```
+
+Full end-to-end breakdown:
+
+| Stage | Latency |
+|-------|---------|
+| Sensor → ISP → Encoder → Ring | ~2ms |
+| Ring → RTP packetization | <1ms |
+| Network (wired LAN) | ~2ms |
+| **Server total** | **~5ms** |
+| WebRTC client (browser) | ~50ms |
+| RTSP client jitter buffer | 100-500ms (client-dependent) |
+
+### 10.2 Low-Latency Optimizations
+
+The following are applied by default or configurable:
+
+1. **ISP frame depth = 0** — frames delivered to encoder immediately,
+   no ISP-side queuing (set in `rvd_pipeline.c`).
+
+2. **Encoder immediate output** (`low_latency = true` in config) —
+   sets `max_stream_cnt = 1` so the encoder releases each frame
+   immediately instead of batching 2-4 frames. Saves ~40-120ms.
+
+3. **TCP send buffer = 64KB** — reduced from 256KB. At 2Mbps, 256KB
+   queues ~1 second of data in the kernel. 64KB = ~250ms. Configurable
+   via `[rtsp] tcp_sndbuf`.
+
+4. **Stale frame skip** — if the ring consumer (RSD/RWD) falls behind,
+   it skips to the latest frame instead of playing through the backlog.
+   Requests IDR after skipping. Prevents accumulated frames from adding
+   multiple frame periods of latency.
+
+5. **Futex-based ring wakeup** — producer wakes consumers instantly
+   via `futex_wake()` on `write_seq`. No polling or sleep between
+   frames.
+
+6. **TCP_NODELAY** — set on all RTSP TCP connections to disable Nagle
+   buffering.
+
+### 10.3 Client-Side Tuning
+
+Most perceived RTSP latency is from the client's jitter buffer:
+
+```sh
+# ffplay (~50ms)
+ffplay -fflags nobuffer -flags low_delay -rtsp_transport udp rtsp://camera/stream0
+
+# mpv (~50ms)
+mpv --no-cache --untimed --profile=low-latency rtsp://camera/stream0
+
+# VLC (~100ms with tuning, 300ms default)
+vlc --network-caching=0 rtsp://camera/stream0
+```
+
+WebRTC (via RWD) has inherently low latency (~50ms total) since
+browsers use minimal jitter buffering.
+
+### 10.4 A/V Sync
+
+Both video and audio RTP timestamps derive from `meta.timestamp`
+(IMP's `CLOCK_MONOTONIC_RAW`, microsecond precision). Same clock
+source = zero inter-stream drift by construction. Measured 7ms
+delta over 1 hour (noise, not drift). Previous counter-based
+approach drifted ~10.6 seconds per day due to audio ADC crystal
+offset.
+
+Audio is gated on the first video keyframe so both RTP timelines
+start together, eliminating initial audio lead.
+
+---
+
+## 11. Dynamic JPEG Buffer Sizing
 
 RHD and ringdump size their read buffers dynamically from
 `ring->data_size` — the full data region size reported in the SHM ring
@@ -1474,7 +1558,7 @@ largest frame the producer can write.
 
 ---
 
-## 11. Verified Platforms
+## 12. Verified Platforms
 
 The following SoC and sensor combinations have been confirmed working
 end-to-end (RVD + RAD + RSD + ROD + RHD + RMR; stream plays in ffplay,
