@@ -1527,7 +1527,43 @@ vlc --network-caching=0 rtsp://camera/stream0
 WebRTC (via RWD) has inherently low latency (~50ms total) since
 browsers use minimal jitter buffering.
 
-### 10.4 A/V Sync
+### 10.4 End-to-End Measurement (`rlatency`)
+
+`rlatency` is a standalone RTSP client that measures true end-to-end
+latency (sensor capture → network → receive) using RTCP Sender Report
+NTP/RTP timestamp correlation per RFC 3550 §6.4.1.
+
+How it works:
+1. Connects via RTSP, receives RTP video packets + RTCP SRs over UDP
+2. Each SR provides a mapping: `NTP_wall_clock ↔ RTP_timestamp`
+3. For each received frame, maps its RTP timestamp to NTP time via
+   the SR correlation: `frame_ntp = sr.ntp + (rtp_ts - sr.rtp_ts) / clock`
+4. Latency = `local_time - frame_ntp`
+5. Uses signed 32-bit RTP timestamp difference for wrap handling
+
+Requirements: NTP-synchronized clocks on both camera and host.
+Accuracy limited by NTP sync quality (~1-20ms). Relative measurements
+(jitter, percentiles) are accurate regardless of clock offset.
+
+```sh
+rlatency rtsp://camera/stream0 -n 500
+```
+
+```
+--- latency (500 frames) ---
+  Min:     -14.94 ms    (negative = NTP offset)
+  Avg:      -5.00 ms
+  Max:      27.65 ms
+  StdDev:   13.99 ms
+  P50:     -10.84 ms
+  P95:      24.34 ms
+  P99:      27.21 ms
+```
+
+Adjusting for NTP offset (~14ms), real latency is ~5-27ms over wired
+LAN with UDP transport.
+
+### 10.5 A/V Sync
 
 Both video and audio RTP timestamps derive from `meta.timestamp`
 (IMP's `CLOCK_MONOTONIC_RAW`, microsecond precision). Same clock
