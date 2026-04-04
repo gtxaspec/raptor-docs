@@ -242,7 +242,9 @@ insmod tx_isp_t23.ko direct_mode=2 isp_clk=200000000 \
 Notes:
 - IVDC only applies to main streams. Sub streams always use the normal
   framesource path regardless of `direct_mode`.
-- **IVDC is incompatible with OSD.** When using IVDC, set `[osd] enabled = false`.
-  The ISP-VPU direct path bypasses the framesource buffer pool, so OSD has no
-  buffer to draw on. OSD on sub streams (non-IVDC) still works with `direct_mode=0`.
-- To use OSD with dual-sensor, use `direct_mode=0` (non-IVDC) instead.
+- **IPU OSD (standard OSD) is incompatible with IVDC** — per Ingenic docs,
+  the T23 IPU module only supports non-direct mode. When using IVDC, either
+  disable OSD (`[osd] enabled = false`) or switch to ISP OSD (hardware overlay
+  in the ISP pipeline, works with IVDC). ISP OSD support is available via the
+  `isp_osd_*` HAL ops.
+- To use IPU OSD with dual-sensor, use `direct_mode=0` (non-IVDC).
