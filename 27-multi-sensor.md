@@ -218,6 +218,26 @@ crop tells the framesource the actual input resolution.
 
 ### IVDC (direct mode)
 
-IVDC (`direct_mode=2`) is not currently supported for dual-sensor.
-Use `direct_mode=0` (non-IVDC). Single-sensor IVDC still works
-with `direct_mode=1`.
+Dual-sensor IVDC is supported with `direct_mode=2`. This bypasses
+the framesource buffer pool and feeds frames directly from the ISP
+to the VPU encoder, reducing memory usage and latency.
+
+To enable, load the ISP module with `direct_mode=2` and set `ivdc = true`
+on the main streams in raptor.conf:
+
+```ini
+[stream0]
+ivdc = true
+
+[sensor1_stream0]
+ivdc = true
+```
+
+ISP module loading for IVDC dual-sensor:
+```bash
+insmod tx_isp_t23.ko direct_mode=2 isp_clk=200000000 \
+    isp_memopt=1 mipi_switch_gpio=7
+```
+
+Note: IVDC only applies to main streams. Sub streams always use
+the normal framesource path regardless of `direct_mode`.
