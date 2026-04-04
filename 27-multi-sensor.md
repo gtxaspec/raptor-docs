@@ -239,5 +239,10 @@ insmod tx_isp_t23.ko direct_mode=2 isp_clk=200000000 \
     isp_memopt=1 mipi_switch_gpio=7
 ```
 
-Note: IVDC only applies to main streams. Sub streams always use
-the normal framesource path regardless of `direct_mode`.
+Notes:
+- IVDC only applies to main streams. Sub streams always use the normal
+  framesource path regardless of `direct_mode`.
+- **IVDC is incompatible with OSD.** When using IVDC, set `[osd] enabled = false`.
+  The ISP-VPU direct path bypasses the framesource buffer pool, so OSD has no
+  buffer to draw on. OSD on sub streams (non-IVDC) still works with `direct_mode=0`.
+- To use OSD with dual-sensor, use `direct_mode=0` (non-IVDC) instead.
