@@ -455,7 +455,7 @@ These daemons control hardware peripherals and do not process frame data.
   - `raptorctl rvd set-gop <ch> <length>` -- change GOP length
   - `raptorctl rvd set-fps <ch> <fps>` -- change frame rate
   - `raptorctl rvd set-qp-bounds <ch> <min> <max>` -- change QP range
-  - `raptorctl rvd privacy [on|off]` -- toggle privacy mode
+  - `raptorctl rod privacy [on|off] [channel]` -- toggle privacy mode (all or per-stream)
   - `raptorctl rad set-volume <val>` -- change audio input volume
   - `raptorctl rad set-gain <val>` -- change audio input gain
   - `raptorctl rad set-ns <0|1> [level]` -- noise suppression
