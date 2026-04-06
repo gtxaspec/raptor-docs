@@ -349,6 +349,31 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Why separate**: DTLS/SRTP state is per-client and heavyweight
   (mbedTLS contexts). Isolating WebRTC keeps the RTSP path simple.
 
+#### RWC -- USB Webcam Daemon
+
+- **Role**: Turns the camera into a USB webcam. Reads JPEG video
+  frames from the JPEG ring and raw PCM audio from the audio ring,
+  feeds them to the Linux UVC+UAC gadget via V4L2 and `/dev/uac_mic`.
+  The host sees a standard USB webcam with microphone.
+- **Video**: MJPEG (from jpeg ring) or H.264 (from video ring).
+  Bulk USB endpoint — works through any USB hub chain. UVC PROBE/COMMIT
+  format negotiation handled in userspace. 1080p/720p/360p at 30/25/15fps.
+- **Audio**: 16kHz mono 16-bit PCM via custom UAC1 mic kernel function
+  (no ALSA). L16 byte-swap (network→little-endian) done in daemon.
+  Isochronous IN endpoint, 32 bytes per 1ms USB frame.
+- **Kernel**: Requires patched `g_webcam` module with bulk UVC endpoint,
+  H.264 framebased descriptors, and `f_uac_mic.c` composite function.
+  `CONFIG_MEDIA_SUPPORT=m` (must be module, not built-in — built-in
+  breaks I2C on Ingenic due to V4L2/tx-isp symbol conflicts).
+- **USB setup**: `modprobe g_webcam` → `usb-role -m device` →
+  `echo connect > .../soft_connect`. RWC must be running before host
+  connects (handles UVC control requests from the host).
+- **Config**: `[webcam]` section — `enabled`, `device`, `jpeg_stream`,
+  `h264_stream`, `buffers`, `audio`, `audio_stream`.
+- **Dependencies**: librss_ipc, librss_common. No HAL, no TLS, no compy.
+- **Why separate**: USB gadget state is independent from network
+  streaming. Isolating webcam keeps the RTSP/WebRTC path unaffected.
+
 #### RSP -- Stream Push *(planned, not yet implemented)*
 
 - **Role**: Push RTMP/RTSP streams to an external server (YouTube,
