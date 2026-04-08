@@ -53,6 +53,16 @@ ring buffers. Exactly one instance of each runs per camera.
   served directly from JPEG rings by RHD; no disk files are written.
 - **JPEG channels**: Use encoder channels 4+ (SDK convention), registered
   into video encoder groups via buffer sharing. No separate framesource.
+- **JPEG on-demand encoding** (`[jpeg] idle = true`, default): JPEG
+  encoder channels are created at pipeline init but NOT started. The
+  JPEG encoder thread checks `rss_ring_reader_count()` — when a
+  consumer acquires the ring (MJPEG viewer, snapshot, ringdump), the
+  thread calls `enc_start` and begins encoding. When all consumers
+  release, it calls `enc_stop`. This eliminates VPU overhead when
+  nobody is viewing JPEG, which on T20 halves H.264 FPS due to shared
+  encoder groups forcing IDRs. A periodic reap (every 10s) detects
+  crashed consumers via PID liveness checks and reconciles the count.
+  Set `idle = false` to keep JPEG encoding always-on (legacy behavior).
 - **IVS integration**: When `[motion] enabled = true` and a sub-stream
   is active, RVD creates an IVS group bound into the sub-stream pipeline
   chain (`FS(1) → IVS(0) → [OSD(1) →] ENC(1)`). The IVS group is
@@ -227,6 +237,14 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Role**: HTTP server for JPEG snapshots and MJPEG streaming.
 - **Inputs**: JPEG SHM rings (jpeg0, jpeg1). Zero disk I/O.
 - **Dependencies**: librss_ipc (ring consumer), librss_common.
+- **JPEG demand signaling**: RHD opens JPEG rings at startup for metadata
+  (dimensions, buffer sizing) but does NOT acquire them — the JPEG encoder
+  stays idle. When an MJPEG client connects, RHD calls `rss_ring_acquire()`
+  on all JPEG rings, waking the encoder. When the last MJPEG client
+  disconnects, it calls `rss_ring_release()`. For snapshots (`/snap.jpg`),
+  RHD does a per-request acquire, waits up to 2s for a fresh frame
+  (skipping stale data via `write_seq` baseline), then releases. The
+  reconnect path re-acquires if MJPEG streaming was active.
 - **Endpoints**:
   - `/snap.jpg` or `/snap.jpg?stream=0` — main stream snapshot (1920x1080)
   - `/snap.jpg?stream=1` — sub stream snapshot (640x360)
@@ -587,11 +605,20 @@ typedef struct {
      * Consumer open uses memory_order_acquire. Closes TOCTOU window. */
     uint32_t          magic;            /* RSS_RING_MAGIC */
     uint32_t          version;          /* RSS_RING_VERSION */
-    char              pad[0] __attribute__((aligned(64))); /* cache-line align */
+
+    /* Demand signaling for on-demand encoding (JPEG idle feature).
+     * reader_count tracks active consumers via acquire/release (NOT
+     * open/close — a daemon can have a ring open for metadata without
+     * signaling demand). reader_pids stores PIDs for crash detection:
+     * the reap function checks if stored PIDs are alive and reconciles
+     * reader_count if orphaned. */
+    _Atomic uint32_t  reader_count;
+#define RSS_RING_MAX_READERS 4
+    _Atomic uint32_t  reader_pids[RSS_RING_MAX_READERS];
 } rss_ring_header_t;
 
 #define RSS_RING_MAGIC    0x52535352   /* "RSSR" */
-#define RSS_RING_VERSION  1
+#define RSS_RING_VERSION  2
 
 typedef struct {
     _Atomic uint64_t  seq;              /* sequence number when written */
@@ -700,6 +727,22 @@ const rss_ring_header_t *rss_ring_get_header(rss_ring_t *ring);
 /* Consumer → producer fast-path IDR request (avoids control socket) */
 void         rss_ring_request_idr(rss_ring_t *ring);
 int          rss_ring_check_idr(rss_ring_t *ring);  /* returns 1 and clears */
+
+/* Demand signaling -- consumers call acquire/release to indicate they
+ * actively want data. open/close do NOT touch reader_count, so a
+ * daemon can keep a ring mapped for metadata without activating the
+ * producer. The producer checks reader_count to decide whether to
+ * encode (used by JPEG on-demand feature).
+ *
+ * acquire: increments reader_count, stores getpid() in a PID slot.
+ * release: decrements reader_count, clears own PID slot.
+ * reap:    producer calls periodically to detect crashed consumers
+ *          via kill(pid, 0). Reconciles reader_count to match live
+ *          PIDs, fixing orphaned counts from SIGKILL/crashes. */
+void         rss_ring_acquire(rss_ring_t *ring);
+void         rss_ring_release(rss_ring_t *ring);
+uint32_t     rss_ring_reader_count(rss_ring_t *ring);
+uint32_t     rss_ring_reap_dead_readers(rss_ring_t *ring);
 ```
 
 #### Frame Passing
@@ -1602,7 +1645,9 @@ start together, eliminating initial audio lead.
 
 ---
 
-## 11. Dynamic JPEG Buffer Sizing
+## 11. JPEG Encoding
+
+### 11.1 Dynamic Buffer Sizing
 
 RHD and ringdump size their read buffers dynamically from
 `ring->data_size` — the full data region size reported in the SHM ring
@@ -1616,6 +1661,34 @@ maximum any single frame can occupy) as the read buffer.
 The same applies to ringdump: its per-frame copy buffer is sized from
 `rss_ring_get_header(ring)->data_size` so it can always hold the
 largest frame the producer can write.
+
+### 11.2 On-Demand Encoding (JPEG Idle)
+
+JPEG channels share encoder groups with H.264 on the Ingenic VPU.
+Active JPEG encoding forces IDR resets on the H.264 channel, which on
+T20 halves the main stream FPS from 28+ to ~14 fps. Other SoCs are
+less affected but still pay a VPU cost.
+
+The `[jpeg] idle = true` config (default) makes JPEG encoding on-demand:
+
+- **Pipeline init**: JPEG encoder channels are created and registered
+  into encoder groups, but `enc_start` is NOT called. The ring is
+  created normally.
+- **Encoder thread**: Checks `rss_ring_reader_count()` each iteration.
+  If 0, sleeps 100ms and skips `enc_poll`. If > 0, calls `enc_start`
+  (if not already started) and enters the normal encode loop.
+- **Consumer lifecycle**: RHD calls `rss_ring_acquire()` when MJPEG
+  clients connect or snapshot requests arrive, and `rss_ring_release()`
+  when they disconnect or complete. ringdump acquires on open, releases
+  on close.
+- **Crash recovery**: Every 10s, the encoder thread calls
+  `rss_ring_reap_dead_readers()` which checks stored PIDs via
+  `kill(pid, 0)`. Dead PIDs are cleared and `reader_count` is
+  reconciled to match live PIDs. Handles SIGKILL, crashes, and
+  orphaned counts. Maximum 10s window of unnecessary encoding after
+  a consumer crash.
+- **Config**: Set `[jpeg] idle = false` for always-on JPEG encoding
+  (legacy behavior, encoder starts at pipeline init).
 
 ---
 

@@ -246,8 +246,57 @@ If TCP gives higher FPS than UDP, the network is dropping packets.
 | Tool | Usage |
 |------|-------|
 | `ringdump main -f` | Follow ring frames with timestamps |
-| `ringdump main` | Show ring header (slots, data size, codec info) |
+| `ringdump main` | Show ring header (slots, data size, codec info, reader count) |
+| `ringdump jpeg0` | Show JPEG ring state (reader_count, PIDs for demand debugging) |
 | `impdbg --enc_info` | Encoder channel stats (frame counts, drops) |
 | `raptorctl rvd get-isp` | ISP tuning values via raptor control socket |
 | `ffprobe -v error -show_streams rtsp://...` | Stream metadata from client |
 | `ffmpeg -stats ... -f null -` | Real-time decode FPS from client |
+
+---
+
+## JPEG encoder group contention
+
+On Ingenic SoCs, JPEG encoder channels share encoder groups with H.264.
+Active JPEG encoding forces IDR resets on the H.264 channel, which on
+T20 (oldest/slowest VPU) halves the main stream from 28+ fps to ~14 fps.
+
+### Symptoms
+
+- H.264 FPS drops when MJPEG viewer or snapshot consumer connects
+- FPS recovers when MJPEG viewer disconnects
+- `ringdump jpeg0` shows JPEG frames being produced at sensor FPS (not
+  the configured `[jpeg] fps` — the T20 VPU ignores per-channel fps
+  for JPEG in shared encoder groups)
+
+### Solution: JPEG idle mode (default)
+
+`[jpeg] idle = true` (default in raptor.conf) enables on-demand JPEG
+encoding. The JPEG encoder only runs when a consumer actively acquires
+the JPEG ring (MJPEG streaming, snapshot request, ringdump).
+
+RVD logs show the lifecycle:
+```
+jpeg chn 2: started (1 consumers)     # consumer acquired
+jpeg chn 2: stopped (no consumers)    # consumer released
+```
+
+### Debugging stuck JPEG encoder
+
+If `ringdump jpeg0` shows `Readers: N` with N > 0 but no active viewers:
+
+```sh
+ringdump jpeg0    # check Readers and PIDs fields
+```
+
+- **PIDs shown**: a consumer process holds the ring. Check if it's alive
+  with `kill -0 <pid>`. If dead, the reap will reconcile within 10s.
+- **PIDs all zero but Readers > 0**: orphaned count. The reap reconcile
+  will reset it within 10s.
+- **Workaround**: restart RVD to recreate rings with clean state.
+
+### Disabling JPEG idle
+
+Set `idle = false` in `[jpeg]` section of raptor.conf for always-on
+JPEG encoding (legacy behavior). The JPEG encoder starts at pipeline
+init and runs continuously regardless of consumers.
