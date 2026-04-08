@@ -129,6 +129,23 @@ compy/                   # RTSP library (separate repo, CMake)
 
 ---
 
+## Code Style
+
+Each repository has a `.clang-format` file. The style split is intentional:
+
+| Repository | Indent | Tabs/Spaces | Rationale |
+|-----------|--------|-------------|-----------|
+| raptor (daemons) | 8 | Tabs | Linux kernel style |
+| raptor-ipc | 4 | Spaces | Library style |
+| raptor-common | 4 | Spaces | Library style |
+| raptor-hal | 4 | Spaces | Library style |
+
+Run `clang-format -i <file>` before committing. The top-level raptor
+Makefile does not enforce formatting automatically — it is the
+contributor's responsibility.
+
+---
+
 ## 2. Build System
 
 ### 2.1 Top-Level Makefile
