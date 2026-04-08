@@ -205,12 +205,14 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Authentication**: Digest auth (RFC 2617) via compy, credentials from
   `[rtsp]` config section. Empty = no auth.
 - **RTSPS**: TLS-encrypted RTSP via mbedTLS (compile with `TLS=1`).
-  Enabled when `tls = true` in `[rtsp]` config with `tls_cert` and
-  `tls_key` paths. Uses `tls_port` (default falls back to `port`).
+  Enabled when `tls = true` in `[rtsp]` config. Default port changes
+  from 554 to 322 (IANA RTSPS). Cert/key default to the system
+  uhttpd paths (`/etc/ssl/certs/uhttpd.crt`, `/etc/ssl/private/uhttpd.key`)
+  so `tls = true` alone is sufficient when certs exist.
   Single-socket design — either plain RTSP or RTSPS, not both.
   All TLS code gated behind `#ifdef COMPY_HAS_TLS`. If `tls = true`
-  but cert/key fails to load, RSD exits with a fatal error (no silent
-  fallback to plain RTSP).
+  but cert/key fails to load, RSD warns and falls back to plain RTSP
+  on port 554.
 - **Connection hardening**:
   - Idle timeout (`RSD_IDLE_TIMEOUT_SEC = 60`): clients that have not
     completed RTSP setup and are not actively streaming are disconnected
@@ -1437,10 +1439,9 @@ max_clients = 4
 # endpoint_sub = ch1    # custom exclusive endpoint (disables defaults)
 # username = admin       # digest auth (both required to enable)
 # password = secret
-# tls = false            # enable RTSPS (requires cert + key)
-# tls_cert = /etc/ssl/certs/rtsp.crt
-# tls_key = /etc/ssl/private/rtsp.key
-# tls_port = 322         # RTSPS port (defaults to port if unset)
+# tls = false            # enable RTSPS (default port changes to 322)
+# tls_cert = /etc/ssl/certs/uhttpd.crt
+# tls_key = /etc/ssl/private/uhttpd.key
 
 [http]
 enabled = true
