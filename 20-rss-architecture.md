@@ -430,6 +430,11 @@ These daemons control hardware peripherals and do not process frame data.
   debounce (consecutive seconds above/below threshold before switching).
 - **IPC**: Polls RVD control socket every 1s for exposure data. Receives
   override commands via own control socket (force day, force night, auto).
+- **Control commands**:
+  - `raptorctl ric mode <auto|day|night>` — full switch: GPIO + ISP mode
+  - `raptorctl ric isp-mode <day|night>` — ISP running mode only, no GPIO
+    toggling. Useful for cameras without IR-cut hardware, or for testing
+    ISP color processing independently of the filter.
 - **Why separate**: Day/night switching involves GPIO manipulation, ISP
   mode changes, and hysteresis logic. Isolating it keeps the video daemon
   simple and allows the control algorithm to be replaced or tuned without
