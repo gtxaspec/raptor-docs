@@ -1184,7 +1184,41 @@ Free + page cache                 ~49,000     available for OS/applications
 CPU usage                           <2%       hardware encoder does the work
 ```
 
-### 6.2 Optimization Strategies
+### 6.2 Memory Diagnostics (`raptorctl memory`)
+
+```
+DAEMON    PRIVATE     SHARED        RSS   STACK raptor      STACK sdk      VSIZE
+------    -------     ------        ---   ------------      ---------      -----
+rvd       3472 KB    2972 KB    6444 KB    80/  756 KB   152/38836 KB  112900 KB
+rsd        320 KB    2644 KB    2964 KB    28/  384 KB   112/  644 KB    5472 KB
+...
+```
+
+Column definitions:
+
+- **PRIVATE**: RSS pages not shared with other processes (heap, BSS,
+  touched stack pages). From `/proc/pid/smaps` Private_Clean +
+  Private_Dirty.
+- **SHARED**: RSS pages shared with other processes (shared libraries,
+  SHM rings). From `/proc/pid/smaps` Shared_Clean + Shared_Dirty.
+- **RSS**: PRIVATE + SHARED. Total physical RAM footprint.
+- **STACK raptor**: used/allocated stack for raptor-owned threads
+  (identified by stack size <= 256KB, set via `pthread_attr_setstacksize`).
+- **STACK sdk**: used/allocated stack for SDK/library threads (default
+  ~2MB stacks from libc). On RVD, the Ingenic SDK creates ~20 internal
+  threads with 2MB stacks but uses only ~8KB each.
+- **VSIZE**: total virtual address space. Includes SDK kernel-mapped
+  VPU/ISP/DMA regions that don't consume user RAM. RVD shows ~113MB
+  VSIZE but only ~6.4MB RSS — the difference is reserved encoder memory.
+
+Stack values show virtual allocation (used/reserved). Only touched
+pages count toward PRIVATE — this is why STACK can exceed PRIVATE.
+
+The SHM breakdown lists individual ring buffers and OSD double-buffers
+with their sizes. SHM is counted once in the total (shared across
+all daemons that map the same ring).
+
+### 6.3 Optimization Strategies
 
 - **SHM ring auto-sizing**: When `main_data_mb = 0`, RVD auto-sizes ring
   data regions from encoder bitrate. For a 720p@25fps stream at 1Mbps,
@@ -1205,7 +1239,7 @@ CPU usage                           <2%       hardware encoder does the work
 - **Static linking**: All daemons can be statically linked to avoid
   dynamic linker overhead and reduce per-process memory slightly.
 
-### 6.3 T23 (32MB Systems)
+### 6.4 T23 (32MB Systems)
 
 On 32MB systems, run a minimal set:
 
