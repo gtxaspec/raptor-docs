@@ -39,7 +39,10 @@ raptor/                  # main repo: all daemons and tools
 │   └── rad_main.c
 ├── rhd/                 # HTTP daemon (snap.jpg, MJPEG)
 │   ├── Makefile
-│   └── rhd_main.c
+│   ├── rhd.h
+│   ├── rhd_main.c
+│   ├── rhd_http.c
+│   └── index.html
 ├── rod/                 # OSD daemon (libschrift rendering)
 │   ├── Makefile
 │   ├── rod.h
@@ -71,16 +74,22 @@ raptor/                  # main repo: all daemons and tools
 │   ├── rwd_ice.c
 │   ├── rwd_sdp.c
 │   ├── rwd_signaling.c
-│   └── rwd_media.c
+│   ├── rwd_media.c
+│   └── webrtc.html
 ├── raptorctl/           # CLI control tool
 │   ├── Makefile
-│   └── raptorctl.c
+│   ├── raptorctl.h
+│   ├── raptorctl.c
+│   └── raptorctl_info.c
 ├── ringdump/            # SHM ring debug tool
 │   ├── Makefile
 │   └── ringdump.c
 ├── rac/                 # audio client (play/record)
 │   ├── Makefile
-│   └── rac.c
+│   ├── rac.h
+│   ├── rac.c
+│   ├── rac_record.c
+│   └── rac_play.c
 ├── rsp/                 # (planned, not yet implemented)
 ├── rv4/                 # (planned, not yet implemented)
 ├── rmc/                 # (planned, not yet implemented)
@@ -393,6 +402,6 @@ All daemons share the raptor-common library which provides:
 - **`rss_config_*()`** — INI config parser (load, get, set, save).
 - **`rss_log_*()`** — syslog or stderr logging with levels.
 - **`rss_daemonize()`** — double-fork, PID file, duplicate instance check.
-- **`rss_signal_init()`** — SIGTERM/SIGINT/SIGHUP/SIGPIPE handlers.
+- **`rss_signal_init()`** — SIGTERM/SIGINT handlers, SIGHUP/SIGPIPE ignored.
 - **Utilities**: `rss_timestamp_us()`, `rss_strlcpy()`, `rss_trim()`,
   `rss_mkdir_p()`, `rss_read_file()`, `rss_write_file_atomic()`.

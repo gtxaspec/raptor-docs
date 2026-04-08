@@ -332,7 +332,7 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Protocol stack**: ICE-lite (STUN binding), DTLS-SRTP (mbedTLS for
   DTLS handshake, compy for SRTP/RTP/NAL transport), WHIP over HTTP.
 - **Endpoints**:
-  - `GET /webrtc` — embedded HTML5 player page (connect/disconnect/unmute)
+  - `GET /webrtc` — HTML5 player page loaded from `/usr/share/raptor/webrtc.html`
   - `POST /whip[?stream=N]` — SDP offer/answer exchange
   - `DELETE /whip/{session}` — session teardown
 - **Ports**: UDP for STUN/DTLS/SRTP (`udp_port`, default 8443),
