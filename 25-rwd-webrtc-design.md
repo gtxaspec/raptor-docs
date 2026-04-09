@@ -1,119 +1,15 @@
-# RWD — Minimal WebRTC Daemon Plan
+# RWD — WebRTC Daemon Design
 
-## Context
+## Overview
+
+RWD delivers sub-second live video to browsers via WebRTC. It reuses
+compy's SRTP/RTP/NAL stack (~2200 lines of RFC-compliant code) and adds
+DTLS-SRTP handshaking via mbedTLS, ICE-lite connectivity checks, WHIP
+signaling, and optional two-way audio.
 
 Browsers are dropping RTSP support. WebRTC is the only way to get
-sub-second live video in a browser without plugins. Current options
-(go2rtc, mediamtx) are Go/heavy. We need a minimal C implementation
-that fits the raptor micro-daemon architecture and reuses compy's
-existing SRTP/RTP/NAL stack.
-
-**Goal**: Browser opens a page, clicks play, gets live H.264 + audio
-with <500ms latency. No plugins, no transcoding.
-
----
-
-## What We Already Have (reusable from compy)
-
-| Component | Status | Lines |
-|-----------|--------|-------|
-| SRTP encryption (AES-CM-128, HMAC-SHA1) | complete | ~840 |
-| RTP transport (RFC 3550) | complete | ~400 |
-| H.264 FU-A fragmentation (RFC 6184) | complete | ~300 |
-| H.265 FU fragmentation (RFC 7798) | complete | ~300 |
-| RTCP sender reports | complete | ~200 |
-| SDP generation primitives | complete | ~150 |
-| AES-128-ECB, HMAC-SHA1, CSPRNG | complete | per backend |
-| UDP socket helpers | complete | ~50 |
-
-**Total reuse: ~2200 lines of tested, RFC-compliant code.**
-
-## What mbedTLS Provides
-
-- DTLS 1.2 handshake (enabled in sysroot, v3.6.5)
-- HelloVerifyRequest (DoS protection)
-- Anti-replay, Connection ID
-- **DTLS-SRTP extension (RFC 5764): DISABLED** — needs
-  `MBEDTLS_SSL_DTLS_SRTP` enabled in buildroot mbedtls config
-
-## What Needs To Be Built
-
-### 1. DTLS-SRTP wrapper (~500 lines)
-
-Wrap mbedTLS DTLS API for UDP server mode:
-- `rwd_dtls_init(cert, key)` → create DTLS server context
-- `rwd_dtls_accept(ctx, udp_fd)` → handshake on incoming connection
-- `rwd_dtls_export_srtp_keys(conn)` → extract master key + salt
-- Uses `MBEDTLS_SSL_TRANSPORT_DATAGRAM` (already supported)
-- Needs `MBEDTLS_SSL_DTLS_SRTP` enabled for `use_srtp` extension
-
-**Buildroot change**: enable `MBEDTLS_SSL_DTLS_SRTP` in mbedtls
-package config. One line.
-
-### 2. ICE-lite (~200 lines)
-
-Camera is always the answerer, always ICE-lite:
-- Parse STUN binding requests (20-byte header + attributes)
-- Reply with STUN binding response (mapped address)
-- Use `ice-ufrag` / `ice-pwd` from SDP for message integrity
-- No TURN, no candidate gathering, no trickle ICE
-- Single candidate: host IP + UDP port
-
-```c
-rwd_ice_process(buf, len, from_addr)  // handle STUN request
-rwd_ice_check_integrity(buf, ice_pwd) // HMAC-SHA1 verify
-rwd_ice_send_response(fd, to_addr)    // STUN response
-```
-
-### 3. SDP offer/answer (~300 lines)
-
-Parse browser's SDP offer, generate camera's SDP answer:
-- Extract: codec (H.264 profile, audio codec), ICE credentials,
-  DTLS fingerprint, SSRC
-- Generate answer with camera's: codec params (from SHM ring header),
-  ICE-lite candidate (host IP:port), DTLS fingerprint, SRTP params
-- Single audio + single video m-line
-- Codec: H.264 Constrained Baseline (profile 42e0) for browser compat
-
-```c
-rwd_sdp_parse_offer(sdp_str, &offer)
-rwd_sdp_generate_answer(&offer, &camera_params, answer_buf)
-```
-
-### 4. WHIP signaling endpoint (~200 lines)
-
-Simple HTTP POST handler for WebRTC-HTTP Ingestion Protocol:
-- `POST /whip` — browser sends SDP offer, camera returns SDP answer
-- `DELETE /whip/{session}` — browser tears down session
-- Reuse RHD-style HTTP parsing (or embed in RWD)
-- Response: `201 Created` with SDP answer in body
-- CORS headers for browser access
-
-### 5. RWD daemon (~600 lines)
-
-New daemon following raptor pattern:
-- `rwd_main.c` — init, config, main loop
-- Reads video + audio from SHM rings (same pattern as RSD)
-- Per-client state: DTLS conn, SRTP context, RTP transport
-- Epoll loop: signaling HTTP + DTLS/STUN/SRTP on UDP
-- Max clients: 2-4 (WebRTC is heavier than RTSP)
-
-```
-Config: [webrtc]
-enabled = false
-port = 8443
-max_clients = 2
-cert = /etc/ssl/certs/webrtc.crt
-key = /etc/ssl/private/webrtc.key
-```
-
-### 6. Web page (~100 lines HTML/JS)
-
-Served by RWD or RHD at `/webrtc`:
-- WHIP client: fetch POST to `/whip` with SDP offer
-- `RTCPeerConnection` with H.264 + Opus
-- Minimal UI: video element + connect button
-- No external dependencies
+sub-second live H.264 + audio in a browser without plugins or
+transcoding.
 
 ---
 
@@ -145,72 +41,68 @@ Browser                          Camera (RWD)
   |------------------------------->|
 ```
 
-All on single UDP port (multiplexed by first byte):
-- 0x00-0x03: STUN
-- 0x14-0x15: DTLS
-- 0x80-0xBF: RTP/RTCP
+All traffic flows over a single multiplexed UDP port. Packet demux
+by first byte (RFC 7983):
 
-## Packet demux (~50 lines)
-
-```c
-if (buf[0] < 0x04)       → ICE/STUN
-else if (buf[0] < 0x40)  → DTLS
-else                      → SRTP/SRTCP
 ```
+[0x00..0x03]  → STUN (ICE)
+[0x14..0x15]  → DTLS
+[0x80..0xBF]  → RTP/RTCP (SRTP)
+```
+
+## Components
+
+| File | Purpose |
+|------|---------|
+| `rwd_main.c` | Daemon entry, config, epoll loop, client lifecycle |
+| `rwd_dtls.c` | DTLS-SRTP wrapper (mbedTLS server mode, key export) |
+| `rwd_ice.c` | ICE-lite STUN binding request/response, NAT hole punch |
+| `rwd_sdp.c` | SDP offer parsing, SDP answer generation with ICE candidates |
+| `rwd_signaling.c` | WHIP HTTP/HTTPS endpoint (POST /whip, DELETE /whip/{session}) |
+| `rwd_media.c` | Ring reader → SRTP sender for video + audio |
+| `rwd_webtorrent.c` | WebTorrent tracker client for external sharing (optional) |
+| `rwd.h` | Shared types: client, server, DTLS context, SDP offer |
+| `webrtc.html` | Embedded local viewer page |
+| `share.html` | External viewer page (WebTorrent) |
+
+### Reused from compy
+
+| Component | Lines |
+|-----------|------:|
+| SRTP encryption (AES-CM-128, HMAC-SHA1) | ~840 |
+| RTP transport (RFC 3550) | ~400 |
+| H.264 FU-A fragmentation (RFC 6184) | ~300 |
+| H.265 FU fragmentation (RFC 7798) | ~300 |
+| RTCP sender reports | ~200 |
+| SDP generation primitives | ~150 |
+| AES-128-ECB, HMAC-SHA1, CSPRNG | per backend |
+| UDP socket helpers | ~50 |
+
+### Dependencies
+
+- compy (SRTP, RTP, NAL — already linked by RSD)
+- mbedTLS with `MBEDTLS_SSL_DTLS_SRTP` enabled (DTLS handshake + key export)
+- libopus (backchannel decode — optional, for two-way audio)
+- No other external libraries
 
 ---
 
-## New Files
+## Configuration
 
-| File | Purpose | Lines |
-|------|---------|-------|
-| `rwd/rwd_main.c` | Daemon entry, config, epoll loop | ~400 |
-| `rwd/rwd_dtls.c` | DTLS-SRTP wrapper (mbedTLS) | ~500 |
-| `rwd/rwd_ice.c` | ICE-lite STUN handler | ~200 |
-| `rwd/rwd_sdp.c` | SDP offer parsing + answer generation | ~300 |
-| `rwd/rwd_signaling.c` | WHIP HTTP endpoint | ~200 |
-| `rwd/rwd_media.c` | Ring reader → SRTP sender | ~300 |
-| `rwd/rwd.h` | Types and declarations | ~100 |
-| `rwd/Makefile` | Build | ~20 |
-
-**Total new code: ~2000 lines**
-
-## Modified Files
-
-| File | Change |
-|------|--------|
-| `Makefile` | Add rwd to DAEMONS |
-| `build.sh` | Add rwd to build list |
-| `build-asan.sh` | Add rwd |
-| `config/raptor.conf` | Add `[webrtc]` section |
-| `raptorctl/raptorctl.c` | Add rwd to daemons list |
-| `thingino-raptor.mk` | Add rwd to build + install |
-
-## Buildroot Changes
-
-| File | Change |
-|------|--------|
-| `package/thingino-raptor/Config.in` | Add `BR2_PACKAGE_THINGINO_RAPTOR_WEBRTC` that selects `BR2_PACKAGE_MBEDTLS_DTLS_SRTP` |
-
-`BR2_PACKAGE_MBEDTLS_DTLS_SRTP` already exists in buildroot's mbedtls
-package — just needs to be selected by raptor's Config.in.
-
-```kconfig
-# In thingino-raptor Config.in:
-config BR2_PACKAGE_THINGINO_RAPTOR_WEBRTC
-    bool "WebRTC daemon (RWD)"
-    default n
-    select BR2_PACKAGE_MBEDTLS_DTLS_SRTP
-    help
-      Build the WebRTC streaming daemon with WHIP signaling.
-      Requires mbedTLS with DTLS-SRTP support.
+```ini
+[webrtc]
+enabled = true
+udp_port = 8443
+http_port = 8554
+max_clients = 2
+cert = /etc/ssl/certs/uhttpd.crt
+key = /etc/ssl/private/uhttpd.key
+https = true                    # HTTPS for signaling (enables Talk button)
+local_ip =                      # auto-detected if omitted
+audio_mode = auto               # auto (passthrough) or opus (always transcode)
+opus_complexity = 2             # 0-10, transcode encoder complexity
+opus_bitrate = 64000            # transcode encoder bitrate (bps)
 ```
-
-## Dependencies
-
-- compy (SRTP, RTP, NAL — already linked by RSD)
-- mbedTLS (DTLS — already in sysroot for RTSPS)
-- No new external libraries
 
 ---
 
@@ -218,10 +110,12 @@ config BR2_PACKAGE_THINGINO_RAPTOR_WEBRTC
 
 ### Browsers
 
-- Chrome: ✓ (tested, video + audio)
-- Edge: ✓ (same engine as Chrome)
-- Safari: ✓ (H.264 native)
-- Firefox: ✗ requires mbedTLS ≥ 3.6.6 (see Known Issues)
+| Browser | Status | Notes |
+|---------|--------|-------|
+| Chrome | Supported | Tested, video + audio + backchannel |
+| Edge | Supported | Same engine as Chrome |
+| Safari | Supported | H.264 native |
+| Firefox | Blocked | Requires mbedTLS >= 3.6.6 (ClientHello defragmentation) |
 
 ### go2rtc
 
@@ -232,124 +126,11 @@ streams:
     - webrtc:http://CAMERA_IP:8554/whip
 ```
 
-Requires:
-- SSRC declared in SDP answer (`a=ssrc:` lines) — pion matches
-  incoming RTP by declared SSRC
-- sdes:mid RTP header extension — pion uses MID for BUNDLE demux
-- SHA256 ciphersuites — SHA384 PRF produces wrong SRTP keys with
-  the TLS PRF workaround
-
-Audio: Opus (RAD encodes, RWD sends via SRTP)
-
-## Known Issues
-
-### compy SRTP fixes (all fixed)
-
-1. **IV construction** (`e87567d`): Session salt was at bytes [2..15]
-   instead of [0..13] per RFC 3711 Section 4.1. Packet index was a
-   32-bit value instead of ROC(32)+SEQ(16).
-2. **SSRC byte order** (`7b6458d`): RTP SSRC was serialized in host
-   byte order (no htonl) while RTCP already used htonl. Now consistent.
-3. **RTP extension support** (`2fb9ab4`): Added one-byte header
-   extension (RFC 8285) for sdes:mid. SRTP now skips extensions when
-   computing the payload encryption offset.
-4. **Extension serialization** (`9392579`): extension_payload_len was
-   in network byte order in the struct but used as host order for size
-   computation. Fixed to host order internally, converted in serializer.
-
-### mbedTLS `export_keying_material` crash
-
-`mbedtls_ssl_export_keying_material()` segfaults in mbedTLS 3.6.5
-when called on a DTLS 1.2 context. RWD works around this by using
-`mbedtls_ssl_tls_prf()` with the master secret captured via the
-key export callback (`mbedtls_ssl_set_export_keys_cb`).
-
-### Firefox: ClientHello fragmentation (mbedTLS < 3.6.6)
-
-Firefox sends a ~1400 byte DTLS ClientHello (includes TLS 1.3
-extensions: key_share, supported_versions). This exceeds the DTLS
-record MTU and gets fragmented at the DTLS handshake layer.
-mbedTLS 3.6.5 does not support reassembling a fragmented
-ClientHello, returning `MBEDTLS_ERR_SSL_FEATURE_UNAVAILABLE`.
-
-Fix: [Mbed-TLS/mbedtls#10623](https://github.com/Mbed-TLS/mbedtls/pull/10623)
-backported ClientHello defragmentation to the `mbedtls-3.6` branch
-(merged 2026-03-10). This will ship in mbedTLS 3.6.6. Until then,
-building against the `mbedtls-3.6` branch HEAD enables Firefox.
-
-### DTLS cookie disabled
-
-DTLS HelloVerifyRequest (cookie exchange) is disabled because ICE
-already verifies the client's transport address before DTLS begins.
-This is safe for WebRTC but means RWD should not be exposed as a
-standalone DTLS server without ICE.
-
----
-
-## WebTorrent External Sharing (optional)
-
-RWD supports external WebRTC viewing without port forwarding via
-WebTorrent tracker signaling. Build with `WEBTORRENT=1`.
-
-### How it works
-
-1. Camera connects outbound (TLS WebSocket) to a public WebTorrent
-   tracker (`wss://tracker.openwebtorrent.com`) and announces a share
-   room identified by `base64(SHA-256("raptor:" + share_key))`.
-2. Camera discovers its public IP:port via STUN binding request to
-   a public STUN server, adds the result as a server-reflexive (srflx)
-   ICE candidate in SDP answers.
-3. Viewer opens `share.html#key=<share_key>` in a browser. The page
-   connects to the same tracker, computes the same info_hash, and sends
-   an SDP offer through the tracker.
-4. Camera receives the offer, creates a client (same as WHIP), generates
-   an SDP answer, and sends it back through the tracker.
-5. Camera sends ICE connectivity checks to the browser's candidates
-   (NAT hole punching). Browser's ICE checks reach the camera's srflx
-   address. Direct P2P connection established.
-6. DTLS handshake → SRTP → video+audio flows directly, no relay.
-
-### SDP size limit
-
-Public WebTorrent trackers silently drop large messages. Chrome's SDP
-offers include dozens of unused codecs (~8KB). The viewer page strips
-the SDP to H264 + Opus only (~1KB) before sending through the tracker.
-
-### Share key
-
-- Auto-generated (31 random alphanumeric chars) if not configured.
-- Configurable via `[webtorrent] share_key`. A 4-char deterministic
-  prefix (XOR-folded from the key) is prepended to prevent tracker
-  collisions between devices with the same user key.
-- `raptorctl rwd share` shows the current share URL.
-- `raptorctl rwd share-rotate` generates a new random key.
-
-### NAT compatibility
-
-- **Full-cone NAT**: Works (srflx candidate reachable from any host).
-- **Port-restricted NAT**: Works (ICE hole punch opens the mapping).
-- **Symmetric NAT**: May not work (srflx mapping differs per destination).
-  Users behind symmetric NAT need a VPN or go2rtc as a proxy.
-
-### Config
-
-```ini
-[webtorrent]
-enabled = true
-# tracker = wss://tracker.openwebtorrent.com
-# stun_server = stun.l.google.com
-# stun_port = 19302
-# viewer_url = https://viewer.thingino.com/share.html
-# share_key = mySecretKey       # min 4 chars, auto-generated if omitted
-```
-
-### Files
-
-- `rwd/rwd_webtorrent.c` — TLS WebSocket client, tracker protocol,
-  STUN client, share management, thread with auto-reconnect.
-- `rwd/share.html` — Static viewer page (host anywhere).
-- `rwd/rwd_ice.c` — `rwd_ice_send_check()` for NAT hole punching.
-- `rwd/rwd_sdp.c` — Candidate parsing, srflx candidate in SDP answer.
+Requirements for pion compatibility:
+- SSRC declared in SDP answer (`a=ssrc:` lines)
+- sdes:mid RTP header extension for BUNDLE demux
+- SHA256 ciphersuites (SHA384 PRF produces wrong SRTP keys with
+  the TLS PRF workaround)
 
 ---
 
@@ -370,72 +151,148 @@ Browser mic → getUserMedia → RTCPeerConnection (sendrecv audio)
 
 ### SDP negotiation
 
-- Audio m-line is `a=sendrecv` (camera sends Opus, browser can send back)
-- SDP answer includes both `opus/48000/2` and `PCMU/8000` codecs
-- Browser JS uses `setCodecPreferences([PCMU, Opus])` to prefer PCMU,
-  but falls back to Opus (which the camera decodes via libopus)
+Audio m-line is `a=sendrecv`. SDP answer includes both `opus/48000/2`
+and `PCMU/8000`. Browser JS uses `setCodecPreferences([PCMU, Opus])`
+to prefer PCMU, falling back to Opus (decoded via libopus).
 
 ### HTTPS requirement
 
-`getUserMedia()` requires a secure context (HTTPS or localhost).
-RWD serves HTTPS by default using the same cert/key as DTLS
-(`[webrtc] https = true`). The Talk button only appears when:
-1. The SDP answer contains `a=sendrecv` (backchannel supported)
-2. `navigator.mediaDevices` is available (HTTPS context)
+`getUserMedia()` requires a secure context. RWD serves HTTPS by default
+using the same cert/key as DTLS (`[webrtc] https = true`). The Talk
+button only appears when the SDP answer contains `a=sendrecv` and
+`navigator.mediaDevices` is available.
 
-### PCMU fallback
+### Codec handling
 
-The backchannel callback handles both codecs:
-- **Opus** (PT from offer): decode via `opus_decode()` at 48kHz, downsample 3:1 to 16kHz
-- **PCMU** (PT 0): G.711 µ-law decode + 8→16kHz upsample (same as RSD backchannel)
+- **Opus** (PT from offer): decode via `opus_decode()` at 48kHz,
+  downsample 3:1 to 16kHz
+- **PCMU** (PT 0): G.711 µ-law decode + 8→16kHz upsample
 
 ### Speaker ring
 
 The backchannel opens (or creates) a `speaker` SHM ring. RAD's AO
-playback thread polls for this ring and plays PCM16 frames to
-hardware. The ring uses `rss_ring_open()` first to reuse an existing
-ring (avoids stale mmap when switching between RTSP and WebRTC
-backchannel sessions).
+playback thread polls for this ring and plays PCM16 frames to hardware.
+Uses `rss_ring_open()` first to reuse an existing ring (avoids stale
+mmap when switching between RTSP and WebRTC backchannel sessions).
 
-### RTP/RTCP demux fix
+### RTP/RTCP demux
 
 Incoming packets on the shared UDP port are demuxed by `data[1]`:
-- `data[1] >= 200 && <= 209` → SRTCP (use `compy_srtcp_recv_unprotect`)
-- Otherwise → SRTP (use `compy_srtp_recv_unprotect`)
+- `data[1] >= 200 && <= 209` → SRTCP
+- Otherwise → SRTP
 
-Note: the PT byte must NOT be masked with `& 0x7F` — RTCP types
-200-209 have the high bit set in byte[1], and masking produces
-values 72-81 which would be misidentified as RTP.
+The PT byte must NOT be masked with `& 0x7F` — RTCP types 200-209
+have the high bit set in byte[1], and masking produces values 72-81
+which would be misidentified as RTP.
 
 ---
 
 ## A/V Sync
 
-Both video and audio RTP timestamps are derived from `meta.timestamp`
-(IMP's `CLOCK_MONOTONIC_RAW`, microsecond precision) instead of
-per-stream counters. Since both streams reference the same system
-clock, inter-stream drift is zero by construction.
+Both video and audio RTP timestamps derive from `meta.timestamp`
+(IMP's `CLOCK_MONOTONIC_RAW`, microsecond precision). Since both
+streams reference the same system clock, inter-stream drift is zero
+by construction.
 
-Previous approach (counter-based) drifted ~10.6s/day due to audio
-ADC crystal offset (~16000.5 Hz vs nominal 16000 Hz). Wall-clock
-timestamps eliminate this entirely — measured 7ms delta over 1 hour
-(noise, not drift).
+Previous approach (counter-based) drifted ~10.6s/day due to audio ADC
+crystal offset (~16000.5 Hz vs nominal 16000 Hz). Wall-clock timestamps
+eliminate this — measured 7ms delta over 1 hour (noise, not drift).
 
-Audio is gated on the first video keyframe so both RTP timelines
-start together.
+Audio is gated on the first video keyframe so both RTP timelines start
+together.
 
 ---
 
-## Verification
+## WebTorrent External Sharing
 
-1. Build: `./build.sh t31 <output> rwd`
-2. Config: `[webrtc] enabled = true`, cert/key paths set to valid
-   certificate (uhttpd certs work: `/etc/ssl/certs/uhttpd.crt`)
-3. Start RWD alongside other daemons
-4. Open `https://camera:8554/webrtc` in browser (HTTPS for Talk button)
-5. Click Connect → WHIP POST → DTLS handshake → video plays
-6. Click Unmute for audio
-7. Click Talk → browser requests mic permission → two-way audio
-8. Verify: sub-second latency, audio+video in sync, backchannel audio clear
-9. Test: multiple clients, disconnect/reconnect, Chrome/Edge/Safari
-10. WebTorrent: open share URL, verify Talk button works over HTTPS
+RWD supports external WebRTC viewing without port forwarding via
+WebTorrent tracker signaling. Built with `WEBTORRENT=1`.
+
+### How it works
+
+1. Camera connects outbound (TLS WebSocket) to a public WebTorrent
+   tracker (`wss://tracker.openwebtorrent.com`) and announces a share
+   room identified by `base64(SHA-256("raptor:" + share_key))`.
+2. Camera discovers its public IP:port via STUN binding request to
+   a public STUN server, adds the result as a server-reflexive (srflx)
+   ICE candidate in SDP answers.
+3. Viewer opens `share.html#key=<share_key>` in a browser. The page
+   connects to the same tracker, computes the same info_hash, and sends
+   an SDP offer through the tracker.
+4. Camera receives the offer, creates a client (same as WHIP), generates
+   an SDP answer, and sends it back through the tracker.
+5. ICE connectivity checks punch through NAT. Direct P2P connection
+   established. DTLS handshake → SRTP → video+audio flows directly.
+
+### SDP size limit
+
+Public WebTorrent trackers silently drop large messages. Chrome's SDP
+offers include dozens of unused codecs (~8KB). The viewer page strips
+the SDP to H264 + Opus only (~1KB) before sending through the tracker.
+
+### Share key
+
+- Auto-generated (31 random alphanumeric chars) if not configured.
+- Configurable via `[webtorrent] share_key`. A 4-char deterministic
+  prefix (XOR-folded from the key) prevents tracker collisions.
+- `raptorctl rwd share` shows the current share URL.
+- `raptorctl rwd share-rotate` generates a new random key.
+
+### NAT compatibility
+
+| NAT type | Status |
+|----------|--------|
+| Full-cone | Works (srflx candidate reachable from any host) |
+| Port-restricted | Works (ICE hole punch opens the mapping) |
+| Symmetric | May not work (srflx mapping differs per destination) |
+
+Users behind symmetric NAT need a VPN or go2rtc as a proxy.
+
+### Configuration
+
+```ini
+[webtorrent]
+enabled = false
+tracker = wss://tracker.openwebtorrent.com
+stun_server = stun.l.google.com
+stun_port = 19302
+tls_verify = true               # verify tracker TLS cert
+viewer_url = https://viewer.thingino.com/share.html
+share_key =                     # min 4 chars, auto-generated if omitted
+```
+
+---
+
+## Known Issues
+
+### compy SRTP fixes (resolved)
+
+1. **IV construction** (`e87567d`): Session salt was at bytes [2..15]
+   instead of [0..13] per RFC 3711 Section 4.1.
+2. **SSRC byte order** (`7b6458d`): RTP SSRC was in host byte order
+   (no htonl) while RTCP already used htonl.
+3. **RTP extension support** (`2fb9ab4`): Added one-byte header
+   extension (RFC 8285) for sdes:mid. SRTP now skips extensions when
+   computing the payload encryption offset.
+4. **Extension serialization** (`9392579`): extension_payload_len was
+   in network byte order but used as host order for size computation.
+
+### mbedTLS export_keying_material crash
+
+`mbedtls_ssl_export_keying_material()` segfaults in mbedTLS 3.6.5
+on DTLS 1.2. RWD works around this by using `mbedtls_ssl_tls_prf()`
+with the master secret captured via `mbedtls_ssl_set_export_keys_cb`.
+
+### Firefox: ClientHello fragmentation
+
+Firefox sends a ~1400 byte DTLS ClientHello (TLS 1.3 extensions:
+key_share, supported_versions). mbedTLS 3.6.5 cannot reassemble a
+fragmented ClientHello. Fix:
+[Mbed-TLS/mbedtls#10623](https://github.com/Mbed-TLS/mbedtls/pull/10623)
+merged to `mbedtls-3.6` branch (2026-03-10), shipping in 3.6.6.
+
+### DTLS cookie disabled
+
+HelloVerifyRequest is disabled because ICE already verifies the
+client's transport address before DTLS begins. Safe for WebRTC but
+RWD should not be exposed as a standalone DTLS server without ICE.

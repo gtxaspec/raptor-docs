@@ -446,7 +446,7 @@ typedef struct {
      * 0 = auto-detect: RVD reads /proc/jz/sensor/max_fps at startup
      *     and uses that value. This is the recommended default.
      * >0 = use the specified fps, overriding the procfs value.
-     * Exposed as [sensor] fps = 0 in raptor.json. */
+     * Exposed as [sensor] fps = 0 in raptor.conf. */
     uint32_t            max_fps;
 } rss_sensor_config_t;
 ```

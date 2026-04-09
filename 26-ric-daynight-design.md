@@ -140,6 +140,27 @@ raptorctl ric status          # show mode, state, exposure
 
 ---
 
+## ADC Trigger Mode
+
+RIC supports a third trigger mode using an external photoresistor
+connected to the SU_ADC hardware. Unlike luma and gain modes, ADC
+reads ambient light directly -- unaffected by IR LED illumination -- so
+no flip-flop prevention or calibration is needed.
+
+```ini
+[ircut]
+trigger = adc
+adc_channel = 0
+adc_night = 200     # ADC value below this → switch to night
+adc_day = 600       # ADC value above this → switch to day
+```
+
+The ADC library (`libsysutils.so`) is loaded at runtime via `dlopen`.
+If unavailable, RIC falls back to luma mode with a warning. The same
+`hysteresis_sec` debounce applies to ADC transitions.
+
+---
+
 ## Legacy Gain Mode
 
 Setting `trigger = gain` uses fixed `total_gain` thresholds instead

@@ -11,6 +11,14 @@ This document defines the complete `rss_hal_caps_t` struct and provides the exac
 #include <stdint.h>
 
 typedef struct {
+    /* ── System Info ── */
+    const char *soc_name;
+    const char *sdk_version;
+    int max_fs_channels;
+    int max_enc_channels;
+    int max_osd_groups;
+    int max_osd_regions;
+
     /* ── Encoder Capabilities ── */
     bool has_h265;                /* H.265/HEVC encoding support */
     bool has_rotation;            /* FrameSource channel rotation (hardware) */
@@ -23,9 +31,37 @@ typedef struct {
     bool has_set_bitrate;         /* IMP_Encoder_SetChnBitRate (dynamic) */
     bool has_stream_buf_size;     /* IMP_Encoder_SetStreamBufSize */
     bool has_encoder_pool;        /* IMP_Encoder_SetPool / GetPool */
+    bool has_smartp_gop;          /* SmartP GOP mode */
+    bool has_rc_options;          /* Extended RC option flags */
+    bool has_pskip;               /* P-skip control */
+    bool has_srd;                 /* Scene reference detection */
+    bool has_max_pic_size;        /* Max picture size control */
+    bool has_super_frame;         /* Super frame handling */
+    bool has_color2grey;          /* Color to greyscale conversion */
+    bool has_roi;                 /* Region of interest encoding */
+    bool has_map_roi;             /* ROI map mode */
+    bool has_qp_bounds_per_frame; /* Per-frame QP bounds */
+    bool has_qpg_mode;            /* QP group mode */
+    bool has_qpg_ai;              /* AI-driven QP groups */
+    bool has_mbrc;                /* Macroblock-level rate control */
+    bool has_enc_denoise;         /* Encoder-integrated denoising */
+    bool has_gdr;                 /* Gradual decoder refresh */
+    bool has_sei_userdata;        /* SEI user data insertion */
+    bool has_h264_vui;            /* H.264 VUI parameters */
+    bool has_h265_vui;            /* H.265 VUI parameters */
+    bool has_h264_trans;          /* H.264 transform controls */
+    bool has_h265_trans;          /* H.265 transform controls */
+    bool has_enc_crop;            /* Encoder output cropping */
+    bool has_eval_info;           /* Encoder evaluation info */
+    bool has_poll_module;         /* IMP_Encoder_PollingModuleStream */
+    bool has_resize_mode;         /* Channel resize mode */
+    bool has_jpeg_ql;             /* JPEG quality level control */
+    bool has_jpeg_qp;             /* JPEG QP control */
 
     /* ── ISP Capabilities ── */
     bool has_multi_sensor;        /* IMPVI_NUM support (dual/multi sensor) */
+    int  max_sensors;             /* 1 for T20-T31, 3 for T23-1.3.0/T32/T40/T41 */
+    bool has_t23_multicam_api;    /* T23 1.3.0 IMP_ISP_MultiCamera_* functions */
     bool has_defog;               /* IMP_ISP_Tuning_EnableDefog */
     bool has_dpc;                 /* IMP_ISP_Tuning_SetDPC_Strength */
     bool has_drc;                 /* DRC (Dynamic Range Compression) */
@@ -94,11 +130,46 @@ typedef struct {
 
 (1) T21 and T23 declare H.265 structs in headers but mark them "Unsupport". Treat as unavailable for the HAL.
 
+### 2.1b Extended Encoder Capabilities
+
+| Capability | T20 | T21 | T23 | T30 | T31 | T32 | T40 | T41 |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `has_smartp_gop` | - | - | - | - | Y | - | Y | Y |
+| `has_rc_options` | - | - | - | - | Y | - | Y | Y |
+| `has_pskip` | - | - | - | - | - | Y | - | - |
+| `has_srd` | - | - | - | - | - | Y | - | - |
+| `has_max_pic_size` | - | - | - | - | - | Y | - | Y |
+| `has_super_frame` | - | Y | - | - | - | Y | - | - |
+| `has_color2grey` | - | Y | - | - | - | - | - | - |
+| `has_roi` | - | Y | - | - | - | Y | - | - |
+| `has_map_roi` | - | - | - | - | - | Y | - | - |
+| `has_qp_bounds_per_frame` | - | - | - | - | - | Y | - | Y |
+| `has_qpg_mode` | - | Y | - | - | - | Y | - | - |
+| `has_qpg_ai` | - | - | - | - | - | Y | - | - |
+| `has_mbrc` | - | Y | - | - | - | - | - | - |
+| `has_enc_denoise` | - | Y | - | - | - | - | - | - |
+| `has_gdr` | - | - | - | - | - | Y | - | - |
+| `has_sei_userdata` | - | Y | - | - | - | Y | - | - |
+| `has_h264_vui` | - | - | - | - | - | Y | - | - |
+| `has_h265_vui` | - | - | - | - | - | Y | - | - |
+| `has_h264_trans` | - | Y | - | - | - | Y | - | - |
+| `has_h265_trans` | - | Y | - | - | - | Y | - | - |
+| `has_enc_crop` | - | - | - | - | - | Y | - | - |
+| `has_eval_info` | - | - | - | - | Y | - | - | - |
+| `has_poll_module` | - | Y | - | - | Y | - | Y | Y |
+| `has_resize_mode` | - | - | - | - | Y | - | - | Y |
+| `has_jpeg_ql` | - | Y | - | - | - | - | - | Y |
+| `has_jpeg_qp` | - | - | - | - | - | Y | - | - |
+
+T32 has the broadest extended encoder feature set (T32's SDK exposes 101 encoder functions vs ~70 for T31). T21 inherited several extended features from the T30 SDK lineage despite being an older SoC. T40/T41 share the T31 New SDK encoder with selective T32-era additions.
+
 ### 2.2 ISP Capabilities
 
 | Capability | T20 | T21 | T23 | T30 | T31 | T32 | T40 | T41 |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `has_multi_sensor` | - | - | (2) | - | - | Y | Y | Y |
+| `max_sensors` | 1 | 1 | 3 | 1 | 1 | 3 | 3 | 3 |
+| `has_t23_multicam_api` | - | - | Y | - | - | - | - | - |
 | `has_defog` | - | - | Y | - | Y | - | - | - |
 | `has_dpc` | - | - | Y | - | Y | - | - | - |
 | `has_drc` | Y | Y | Y | Y | Y | - | - | - |

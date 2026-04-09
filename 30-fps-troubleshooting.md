@@ -157,6 +157,21 @@ Duration: 4.0 s
 Avg FPS:  25.0
 ```
 
+### Measuring pipeline latency
+
+The `-l` flag measures per-frame pipeline latency from the IMP capture
+timestamp to the moment ringdump reads the frame. It calibrates against
+the first frame to remove the IMP epoch offset.
+
+```sh
+ringdump main -l          # continuous latency output
+ringdump main -l -n 100   # 100 frames, then print min/avg/max summary
+```
+
+Each frame prints `lat=+Xus (+X.Xms)` showing the capture-to-readout
+delay. At the end of a counted run, a summary line reports min, avg,
+and max latency across all sampled frames.
+
 ### Common ring issues
 
 | Symptom | Cause | Fix |
@@ -246,6 +261,7 @@ If TCP gives higher FPS than UDP, the network is dropping packets.
 | Tool | Usage |
 |------|-------|
 | `ringdump main -f` | Follow ring frames with timestamps |
+| `ringdump main -l` | Measure per-frame pipeline latency (capture to readout) |
 | `ringdump main` | Show ring header (slots, data size, codec info, reader count) |
 | `ringdump jpeg0` | Show JPEG ring state (reader_count, PIDs for demand debugging) |
 | `impdbg --enc_info` | Encoder channel stats (frame counts, drops) |

@@ -90,9 +90,6 @@ raptor/                  # main repo: all daemons and tools
 │   ├── rac.c
 │   ├── rac_record.c
 │   └── rac_play.c
-├── rsp/                 # (planned, not yet implemented)
-├── rv4/                 # (planned, not yet implemented)
-├── rmc/                 # (planned, not yet implemented)
 └── tests/
     ├── mock_hal.c       # x86 mock HAL for ASAN builds
     └── create_rings.c   # synthetic SHM rings for testing
@@ -208,6 +205,8 @@ make distclean
 | RIC | raptor-ipc + raptor-common |
 | RMR | raptor-ipc + raptor-common |
 | RMD | raptor-ipc + raptor-common |
+| RWD | raptor-ipc + raptor-common + mbedTLS |
+| RWC | raptor-ipc + raptor-common |
 
 ### 2.2 build.sh Convenience Wrapper
 
@@ -281,11 +280,11 @@ endif
 define THINGINO_RAPTOR_BUILD_CMDS
     $(MAKE) PLATFORM=$(PLATFORM) CROSS_COMPILE=$(TARGET_CROSS) \
         SYSROOT=$(STAGING_DIR) $(THINGINO_RAPTOR_MAKE_OPTS) \
-        -C $(@D) rvd rsd rad rhd rod ric rmr rmd raptorctl ringdump rac
+        -C $(@D) rvd rsd rad rhd rod ric rmr rmd rwd rwc raptorctl ringdump rac
 endef
 
 define THINGINO_RAPTOR_INSTALL_TARGET_CMDS
-    $(foreach d,rvd rsd rad rhd rod ric rmr rmd,\
+    $(foreach d,rvd rsd rad rhd rod ric rmr rmd rwd rwc,\
         $(INSTALL) -D -m 0755 $(@D)/$(d)/$(d) $(TARGET_DIR)/usr/bin/$(d)$(sep))
     $(foreach t,raptorctl ringdump rac,\
         if [ -f $(@D)/$(t)/$(t) ]; then \
@@ -379,7 +378,6 @@ Binary sizes (stripped): rvd ~195KB, rsd ~322KB, raptorctl ~73KB
 ```
 Daemons: RVD + RAD + ROD + RSD + RHD + RMR + RIC + RMD
 Tools: raptorctl, ringdump, rac
-Planned (not yet built): RSP, RV4, RMC
 Dependencies: all of the above
 Approximate total (stripped): ~1MB
 ```

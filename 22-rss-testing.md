@@ -1,590 +1,268 @@
-# Raptor Streaming System -- Test Strategy
+# Raptor Streaming System -- Test Architecture
 
-Phased testing plan: hardware-first on T31, x86 stub for IPC and
-integration, then additional SoC bring-up. Validation tools and
-performance benchmarks.
-
----
-
-## 1. Phase 1: T31 on Hardware
-
-T31 is the primary development target. All tests run on a T31-based
-camera (e.g., Wyze Cam v3) with thingino firmware. Daemons are deployed
-via NFS or flashed to firmware.
-
-### 1.1 Minimal Test: RVD Only
-
-**Goal**: Verify the HAL video pipeline produces valid encoded frames.
-
-```sh
-# Start RVD in foreground with debug logging
-rvd -c /etc/raptor.json -f -v
-
-# In another terminal, dump one encoded frame
-raptorctl rvd dump-frame > /tmp/frame.h264
-
-# Verify NAL structure
-# For H264 IDR: expect SPS (0x67) + PPS (0x68) + IDR (0x65)
-xxd /tmp/frame.h264 | head -20
-```
-
-Validation checklist:
-- [ ] RVD starts without error (HAL init, sensor detect, pipeline bind)
-- [ ] SHM ring `/dev/shm/rss_ring_main` created with correct header
-  (magic=0x52535352, version=1, stream_id=0)
-- [ ] SHM ring `/dev/shm/rss_ring_sub` created (stream_id=1)
-- [ ] `dump-frame` output contains valid H264 NAL units
-- [ ] IDR frame contains SPS+PPS+IDR (parse with `ffprobe -show_packets`)
-- [ ] Non-IDR frames contain slice NALs
-- [ ] Frame timestamp is monotonically increasing
-- [ ] Sequence numbers increment without gaps
-- [ ] RVD CPU usage: <15% at 1080p@25fps (measured via `top`)
-- [ ] RVD RSS: <1MB (excluding SHM ring mmap)
-
-```sh
-# Detailed NAL analysis
-ffprobe -show_packets -select_streams v \
-    -show_entries packet=pts_time,flags,size \
-    /tmp/frame.h264
-```
-
-### 1.2 RTSP Test: RVD + RSD
-
-**Goal**: Verify end-to-end video streaming over RTSP.
-
-```sh
-# Start RVD and RSD
-rvd -c /etc/raptor.json &
-rsd -c /etc/raptor.json &
-
-# From a remote machine, play the stream
-ffplay rtsp://camera:554/main
-ffplay rtsp://camera:554/sub
-```
-
-Validation checklist:
-- [ ] RSD opens SHM rings without error
-- [ ] RTSP DESCRIBE returns valid SDP (video track with correct codec)
-- [ ] ffplay displays live video without artifacts
-- [ ] Stream plays for 10+ minutes without dropping
-- [ ] Multiple simultaneous clients (up to `max_clients` in config)
-- [ ] Client disconnect does not crash RSD
-- [ ] RSD reconnects to ring if RVD is restarted
-- [ ] Sub stream plays at correct resolution (640x360)
-
-```sh
-# Record 30 seconds to file for offline analysis
-ffmpeg -rtsp_transport tcp -i rtsp://camera:554/main \
-    -c copy -t 30 /tmp/test_main.mp4
-
-# Verify stream integrity
-ffprobe -show_format -show_streams /tmp/test_main.mp4
-```
-
-### 1.3 Audio Test: RVD + RAD + RSD
-
-**Goal**: Verify audio capture, encoding, and RTSP delivery.
-
-```sh
-# Start all three
-rvd -c /etc/raptor.json &
-rad -c /etc/raptor.json &
-rsd -c /etc/raptor.json &
-
-# Play with audio
-ffplay rtsp://camera:554/main
-```
-
-Validation checklist:
-- [ ] RAD creates audio SHM ring `/dev/shm/rss_ring_audio`
-- [ ] RSD SDP includes audio track (a=rtpmap with correct codec)
-- [ ] Audio plays in sync with video (lip sync within 100ms)
-- [ ] Audio quality acceptable (no clipping, no severe noise)
-- [ ] Audio continues after RAD restart (RSD reattaches to new ring)
-- [ ] `raptorctl rad status` shows frame count, sample rate, codec
-
-```sh
-# Record audio+video for sync analysis
-ffmpeg -rtsp_transport tcp -i rtsp://camera:554/main \
-    -c copy -t 10 /tmp/test_av.mp4
-
-# Check A/V sync
-ffprobe -show_entries stream=codec_type,start_time \
-    /tmp/test_av.mp4
-```
-
-### 1.4 OSD Test: RVD + ROD
-
-**Goal**: Verify OSD timestamp overlay renders correctly in the stream.
-
-```sh
-# Start RVD and ROD
-rvd -c /etc/raptor.json &
-rod -c /etc/raptor.json &
-rsd -c /etc/raptor.json &
-
-# View stream and verify timestamp overlay
-ffplay rtsp://camera:554/main
-```
-
-Validation checklist:
-- [ ] ROD creates OSD SHM double-buffers
-- [ ] ROD connects to RVD and registers OSD regions
-- [ ] Timestamp overlay visible at configured position (x=10, y=10)
-- [ ] Timestamp updates every `update_interval_ms` (visually confirm)
-- [ ] Camera name overlay visible at configured position
-- [ ] OSD text renders cleanly (no garbled glyphs, correct font size)
-- [ ] Killing ROD freezes the overlay (does not crash RVD)
-- [ ] Restarting ROD resumes overlay updates
-- [ ] `raptorctl rod set-text timestamp "TEST %H:%M"` updates format
-
-### 1.5 Recording Test: RVD + RMR
-
-**Goal**: Verify MP4 file recording to SD card.
-
-```sh
-# Mount SD card
-mount /dev/mmcblk0p1 /mnt/sd
-
-# Start RVD and RMR
-rvd -c /etc/raptor.conf &
-rmr -c /etc/raptor.conf &
-
-# Start recording
-raptorctl rmr start
-
-# Wait 60 seconds, then stop
-sleep 60
-raptorctl rmr stop
-```
-
-Validation checklist:
-- [ ] MP4 file created in configured directory (`/mnt/sd/recordings/`)
-- [ ] File is playable with ffplay/VLC without re-muxing
-- [ ] moov atom present and valid (`ffprobe -show_format`)
-- [ ] Video track matches configured codec and resolution
-- [ ] Audio track present (if RAD is running)
-- [ ] File segments at configured interval (`segment_minutes`)
-- [ ] Recording survives RMR restart (new file, old file intact)
-- [ ] SD card removal during recording handled gracefully (error logged,
-  daemon continues, resumes when SD reinserted)
-
-```sh
-# Verify recording integrity
-ffprobe -show_format -show_streams /mnt/sd/recordings/*.mp4
-```
-
-### 1.6 Motion Clip Test: RMR + Pre-Buffer
-
-**Goal**: Verify motion-triggered clip recording with pre-buffer.
-
-Requires `[recording] mode = motion` or `mode = both`, and
-`[motion] enabled = true` in raptor.conf.
-
-```sh
-# Trigger a 15-second motion clip (bypasses RMD, sends directly to RMR)
-raptorctl test-motion 15
-
-# Check clip output
-ls -la /mnt/mmcblk0p1/raptor/clips/
-ffprobe /mnt/mmcblk0p1/raptor/clips/$(date +%Y-%m-%d)/*.mp4
-```
-
-With `prebuffer_sec = 5` and `test-motion 15`, expect a ~21 second clip
-(~6s pre-buffer from keyframe alignment + 15s live).
-
-Validation checklist:
-- [ ] Clip file created in `clips/` subdirectory
-- [ ] Clip starts before the motion trigger (pre-buffer working)
-- [ ] `ffprobe` reported duration matches actual playback duration
-- [ ] Video plays for the full clip duration (no early freeze)
-- [ ] Audio plays in sync with video for the full duration
-- [ ] Audio frame count matches video duration (no A/V desync)
-- [ ] Clip rotation works when motion exceeds `clip_length_sec`
-- [ ] `mode=both`: continuous recording unaffected by clip start/stop
-- [ ] `mode=motion`: no recording when idle, clip only on trigger
-- [ ] `raptorctl rmr status` shows clip state
-
-```sh
-# Check RMR status during/after clip
-raptorctl rmr status
-
-# Verify pre-buffer in logs
-cat /tmp/rmr.log | grep pre-buffer
-# Expected: "pre-buffer: replayed N video frames (X.Xs)"
-#           "pre-buffer: replayed M audio frames (target M, X.Xs)"
-```
-
-### 1.6 Full Stack Test
-
-**Goal**: All daemons running simultaneously, sustained operation.
-
-```sh
-# Start all daemons
-/etc/init.d/S31raptor start
-
-# Monitor for 1 hour
-watch -n 5 raptorctl status
-```
-
-Validation checklist:
-- [ ] All daemons running after 1 hour
-- [ ] No memory leaks (`/proc/<pid>/status` VmRSS stable)
-- [ ] No file descriptor leaks (`ls /proc/<pid>/fd | wc -l` stable)
-- [ ] RTSP clients can connect/disconnect repeatedly
-- [ ] Recording produces valid files over multiple segments
-- [ ] Day/night transition works (RIC switches IR-cut, ISP mode)
-- [ ] `raptorctl status` shows all daemons healthy
-- [ ] System CPU idle >50% with one RTSP client + recording
+Testing spans four layers: unit tests on x86 with AddressSanitizer,
+full-daemon ASAN integration with a mock HAL, on-device validation on
+real cameras, and performance benchmarking. 266 unit tests across the
+raptor ecosystem pass under ASAN with zero errors.
 
 ---
 
-## 2. Phase 2: x86 Stub
+## 1. Unit Test Inventory
 
-All IPC and protocol testing on a development workstation. No hardware
-required. Uses the stub HAL that generates synthetic frames.
+All unit tests use the [greatest.h](https://github.com/silentbicycle/greatest)
+single-header C test framework. Every test binary compiles with
+`-fsanitize=address` (AddressSanitizer) to catch memory errors at test
+time. Raptor repos build and run tests with `make test` in each `tests/`
+directory. Compy uses CMake.
 
-### 2.1 Stub HAL Verification
+### 1.1 raptor-common (56 tests, 5 suites)
 
-```sh
-cd build-x86
+| Suite | File | Tests | Coverage |
+|-------|------|------:|----------|
+| config | test_config.c | 14 | INI parser: load, get/set str/int/bool, sections, iteration, roundtrip, edge cases |
+| util | test_util.c | 17 | strlcpy, trim, starts_with, secure_compare — truncation, empty, exact fit |
+| json | test_json.c | 6 | JSON string/int extraction, missing keys, truncation |
+| http | test_http.c | 10 | Base64 decode (padding, overflow), HTTP basic auth validation |
+| file | test_file.c | 9 | Read/write file, atomic write, mkdir_p, timestamp formatting |
 
-# Start RVD with stub HAL
-./daemons/rvd/rvd -c ../config/raptor.json -f -v &
-
-# Dump a frame -- should contain synthetic H264 NAL
-./tools/raptorctl/raptorctl rvd dump-frame > /tmp/stub_frame.h264
-hexdump -C /tmp/stub_frame.h264 | head
-
-# Verify ring exists
-ls -la /dev/shm/rss_ring_*
+```
+cd raptor-common/tests && make test
 ```
 
-### 2.2 IPC: Multi-Consumer Ring Test
+### 1.2 raptor-ipc (25 tests, 3 suites)
 
-**Goal**: Verify multiple consumers can read from the same SHM ring
-concurrently without data corruption.
+| Suite | File | Tests | Coverage |
+|-------|------|------:|----------|
+| ring | test_ring.c | 17 | SHM ring create/open, publish/read, sequential access, overflow detection and recovery, multi-consumer, data region wrap, keyframe seek, wait timeout, IOV publish, stream info, IDR request, demand count, dead reader reaping |
+| osd | test_osd.c | 5 | OSD double-buffer lifecycle, publish/read, dirty flag, heartbeat |
+| ctrl | test_ctrl.c | 3 | Control socket roundtrip (threaded echo), handler error, stall timeout |
 
-```sh
-# Start producer
-./daemons/rvd/rvd -c ../config/raptor.json &
-
-# Start 3 consumers on the same ring
-./daemons/rsd/rsd -c ../config/raptor.json &
-./daemons/rmr/rmr -c ../config/raptor.json &
-./tools/ringdump/ringdump -r main -n 100 &   # dump 100 frames and exit
-
-# Verify all 3 consumed frames without errors
-wait
+```
+cd raptor-ipc/tests && make test
 ```
 
-Validation checklist:
-- [ ] All consumers read frames without corruption
-- [ ] Sequence numbers are consistent across consumers
-- [ ] No consumer blocks the producer
-- [ ] Slow consumer receives `RSS_EOVERFLOW` and recovers
+### 1.3 raptor/rmr (35 tests, 3 suites)
 
-### 2.3 IPC: Ring Overflow Test
+| Suite | File | Tests | Coverage |
+|-------|------|------:|----------|
+| nal | test_nal.c | 9 | Annex B → AVCC conversion (H.264, H.265, 3-byte start codes), empty/overflow, single NAL, SPS/PPS extraction |
+| prebuf | test_prebuf.c | 9 | Pre-buffer push/count, slot eviction, keyframe find by age, frame-at lookup, iterate with data verification, data region wrap integrity |
+| mux | test_mux.c | 17 | fMP4 box construction (moov/moof/mdat/mfra), H.264/H.265/PCMU/AAC/Opus codec paths, multi-fragment, large timestamps (64-bit tfdt), CTS offset, empty/double flush, A/V duration verification |
 
-**Goal**: Verify behavior when a consumer falls behind.
-
-```sh
-# Start producer at high rate
-RSS_STUB_FPS=60 ./daemons/rvd/rvd -c ../config/raptor.json &
-
-# Start a deliberately slow consumer
-./tools/ringdump/ringdump -r main -n 1000 --delay-ms 200 &
-
-# Verify overflow detection and recovery
-# ringdump should log "overflow: skipped N frames, seeking next keyframe"
+```
+cd raptor/tests && make test
 ```
 
-### 2.4 OSD Double-Buffer Test
+### 1.4 compy (150 tests, 27 suites)
 
-```sh
-# Start RVD and ROD
-./daemons/rvd/rvd -c ../config/raptor.json &
-./daemons/rod/rod -c ../config/raptor.json &
+Compy is the RTSP/RTP/WebRTC C library used by RSD and RWD. Tests build
+with CMake and run via `ctest`.
 
-# Verify OSD SHM created
-ls -la /dev/shm/rss_osd_*
+| Domain | Suites | Tests | Coverage |
+|--------|-------:|------:|----------|
+| RTSP types | 13 | ~30 | header_map, header, message_body, method, reason_phrase, request_line, request_uri, request, response_line, response, rtsp_version, sdp, status_code |
+| NAL parsing | 3 | ~19 | H.264 FU-A, H.265 FU, generic NAL framing |
+| Protocol | 7 | ~40 | transport, receiver, controller, context, writer, io_vec, util |
+| RTP/RTCP | 3 | ~38 | RTCP types, RTCP logic, receiver reports |
+| Security | 2+ | ~23 | auth, base64, SRTP (conditional on TLS), DTLS (conditional on TLS) |
 
-# Kill ROD, verify RVD continues
-kill $(pidof rod)
-sleep 2
-./tools/raptorctl/raptorctl rvd status   # should show "running"
-
-# Restart ROD
-./daemons/rod/rod -c ../config/raptor.json &
 ```
-
-### 2.5 Control Socket Test
-
-```sh
-# Start RVD
-./daemons/rvd/rvd -c ../config/raptor.json &
-
-# Test various commands
-./tools/raptorctl/raptorctl rvd status
-./tools/raptorctl/raptorctl rvd set-bitrate 3000000
-./tools/raptorctl/raptorctl rvd request-idr
-./tools/raptorctl/raptorctl rvd set-gop 100
-
-# Test error handling
-./tools/raptorctl/raptorctl rvd set-bitrate -1      # expect error
-./tools/raptorctl/raptorctl nonexistent status       # expect error
-```
-
-### 2.6 RTSP on x86 (Synthetic Stream)
-
-```sh
-./daemons/rvd/rvd -c ../config/raptor.json &
-./daemons/rsd/rsd -c ../config/raptor.json &
-
-# Play synthetic stream -- should show color bars
-ffplay rtsp://localhost:554/main
-```
-
-This validates the full RSD RTSP/RTP stack without hardware.
-
-### 2.7 Crash Recovery Simulation
-
-```sh
-# Start all daemons
-./daemons/rvd/rvd -c ../config/raptor.json &
-./daemons/rsd/rsd -c ../config/raptor.json &
-./daemons/rod/rod -c ../config/raptor.json &
-
-# Simulate RVD crash
-kill -9 $(pidof rvd)
-sleep 1
-
-# Verify consumers detect stale ring
-./tools/raptorctl/raptorctl rsd status   # should show "ring stale" or similar
-
-# Restart RVD
-./daemons/rvd/rvd -c ../config/raptor.json &
-sleep 2
-
-# Verify consumers reconnect
-./tools/raptorctl/raptorctl rsd status   # should show "connected"
-ffplay rtsp://localhost:554/main          # should resume
+cd compy && cmake -B build && cmake --build build && ctest --test-dir build
 ```
 
 ---
 
-## 3. Phase 3: Additional SoCs
+## 2. ASAN Integration Testing
 
-### 3.1 T20 (Old SDK, No H265)
+Full-daemon integration tests run all raptor daemons on the x86 host
+under AddressSanitizer, using a mock HAL instead of real hardware.
 
-**Test platform**: T20-based camera (e.g., Wyze Cam v2).
+### 2.1 Mock HAL
 
-Key differences from T31:
-- No H265 encoder (`caps.has_h265 = false`)
-- No buffer sharing (`caps.has_bufshare = false`)
-- No capped rate control (`caps.has_capped_rc = false`)
-- No dynamic bitrate (`caps.has_set_bitrate = false`)
-- Old SDK enc_get_frame data layout (direct virAddr, no ring buffer wrap)
+`tests/mock_hal.c` implements the full `rss_hal_ops_t` vtable with
+deterministic synthetic frames. RVD, RAD, and ROD link against the mock.
+RSD, RHD, RIC, RMD, and RMR have no HAL dependency and build natively.
+RWD is excluded (requires mbedTLS DTLS-SRTP, not available on x86 host).
 
-Validation checklist:
-- [ ] RVD starts with H264-only config (no H265 attempt)
-- [ ] Config requesting H265 falls back to H264 with warning log
-- [ ] `raptorctl rvd set-bitrate` returns error (unsupported) gracefully
-- [ ] RC mode CAPPED_VBR in config silently maps to VBR
-- [ ] Frame data from enc_get_frame is correctly linearized (old layout)
-- [ ] RTSP stream plays in ffplay
-- [ ] All consumer daemons work (they are codec-agnostic)
+`./build-asan.sh` compiles all daemons to `asan-out/` with
+`-fsanitize=address,undefined -fno-omit-frame-pointer`.
 
-```sh
-# Test graceful degradation
-cat > /tmp/raptor-h265.json << 'EOF'
-{"rvd": {"streams": [{"codec": "h265", "width": 1280, "height": 720}]}}
-EOF
-rvd -c /tmp/raptor-h265.json -f -v
-# Expected: "H265 not supported on T20, falling back to H264"
-```
+### 2.2 Synthetic Ring Setup
 
-### 3.2 T40 (IMPVI_SDK, Dual-Core)
+`tests/create_rings.c` creates SHM rings pre-populated with fake JPEG
+frames. This allows RHD and ringdump to exercise their buffer paths
+without RVD running.
 
-**Test platform**: T40-based camera with dual MIPI CSI sensors.
+### 2.3 Stress Test Results
 
-Key differences from T31:
-- Dual XBurst cores (CPU affinity testing)
-- IMPVI_NUM parameter on all ISP tuning calls
-- Hardware I2D rotation
-- Multi-sensor support (dual CSI)
+| Workload | Volume | Result |
+|----------|--------|--------|
+| HTTP requests to RHD | 4,000 (snap.jpg + mjpeg) | Zero leaks |
+| RTSP connection cycles to RSD | 400 | Zero leaks |
+| RMR segment rotations | 100 | Zero leaks, zero leaked FDs |
+| RMR mock frames processed | 10,000 | Zero UBSan errors |
 
-Validation checklist:
-- [ ] CPU affinity: RVD on CPU0, consumers on CPU1
-  ```sh
-  taskset -p $(pidof rvd)    # should show 0x1 (CPU0)
-  taskset -p $(pidof rsd)    # should show 0x2 (CPU1)
-  ```
-- [ ] ISP tuning calls dispatch with IMPVI_NUM correctly
-- [ ] Hardware rotation: `fs_set_rotation(90)` works without CPU overhead
-- [ ] Dual sensor: both sensors produce independent streams
-  ```sh
-  ls /dev/shm/rss_ring_main0 /dev/shm/rss_ring_main1
-  ffplay rtsp://camera:554/main0
-  ffplay rtsp://camera:554/main1
-  ```
-- [ ] CPU usage lower than T31 at equivalent resolution (dual-core benefit)
-- [ ] Day/night transition on both sensors independently (RIC)
+All 6 daemons ran simultaneously. Zero memory leaks and zero
+UndefinedBehaviorSanitizer errors reported at exit.
 
-### 3.3 T32 (Extended Encoder)
+### 2.4 RMR Memory Safety Audit
 
-**Test platform**: T32-based camera.
+A dedicated audit pass over RMR source found and fixed these issues
+before release:
 
-Key differences from T31:
-- Hybrid SDK: old-style type names, new-style internal structs
-- `SetDefaultParam` takes extra `uBufSize` parameter
-- `IMP_System_MemPoolFree` in deinit (unique to T32)
-- Extended encoder features
-
-Validation checklist:
-- [ ] enc_create_channel correctly fills hybrid struct format
-- [ ] SetDefaultParam called with uBufSize (T32-specific code path)
-- [ ] MemPoolFree called during deinit
-- [ ] Extended encoder features disabled gracefully (caps reflect T32 support)
-- [ ] RTSP stream plays correctly
-- [ ] All rate control modes work (VBR, CBR, CAPPED_VBR)
-
-### 3.4 T23 (Dual-Sensor via _Sec)
-
-**Test platform**: T23-based camera.
-
-Key differences:
-- Dual-sensor via `_Sec` suffix functions (not IMPVI_NUM)
-- ISP OSD support (`caps.has_isp_osd = true`)
-- Frame-level crop support (`caps.has_fcrop = true`)
-- Audio HPF cutoff frequency tuning
-
-Validation checklist:
-- [ ] Second sensor accessible via `_Sec` API path
-- [ ] ISP OSD renders correctly
-- [ ] fcrop configuration works (verify cropped output resolution)
-- [ ] Audio HPF cutoff adjustment via raptorctl
+| Severity | Issue | Fix |
+|----------|-------|-----|
+| CRITICAL | SPSC circular write buffer corrupted NAL data at wrap boundaries | Removed SPSC wbuf entirely; muxer writes directly to fd (single-threaded) |
+| CRITICAL | `malloc()` return unchecked in muxer box-building paths | All allocations now checked; fatal-log + clean shutdown on OOM |
+| HIGH | Integer overflow in box size calculation for large frames (>16MB) | Added overflow check before size accumulation |
+| HIGH | Audio DTS counter not reset on segment rotation | Counter now resets to 0 at each new segment |
+| HIGH | Unchecked `write()` return on full disk | Direct write retries on `EINTR`, logs and stops recording on `ENOSPC` |
+| HIGH | Storage cleanup walked directory with `readdir()` on the recording path without re-opening on each rotation | `opendir`/`closedir` now called per-cleanup pass |
+| HIGH | Segment file path buffer (256 bytes) could overflow with long base paths | Buffer increased to `PATH_MAX`; truncation now caught |
 
 ---
 
-## 4. Validation Tools
+## 3. On-Device Validation
 
-### 4.1 ffprobe -- Stream Analysis
+On-device validation runs on real cameras. Primary target is T31
+(XBurst 1, most deployed). Secondary target is T41 (XBurst 2, new SDK
+generation).
+
+### 3.1 Validation Matrix
+
+| Stage | Daemons | Validates |
+|-------|---------|-----------|
+| Video pipeline | RVD | HAL init, sensor detect, SHM ring creation, NAL structure, monotonic timestamps |
+| RTSP streaming | RVD + RSD | SDP generation, stream playback, multi-client, ring reconnect after RVD restart |
+| Audio pipeline | RVD + RAD + RSD | Audio ring, A/V sync (<100ms lip sync), codec delivery (PCMU/AAC/Opus) |
+| OSD overlay | RVD + ROD | Double-buffer lifecycle, text rendering, format update, hot restart tolerance |
+| Recording | RVD + RMR | fMP4 output, segment rotation, SD card removal resilience |
+| Motion clips | RVD + RMR | Pre-buffer keyframe-aligned replay, clip duration, mode switching |
+| Full stack | All daemons | 1-hour soak, memory/FD stability, day/night transition, client connect/disconnect cycles |
+
+### 3.2 Acceptance Criteria
+
+| Metric | Target |
+|--------|--------|
+| RVD CPU at 1080p@25fps | <15% |
+| RVD RSS (excluding SHM mmap) | <1MB |
+| RTSP simultaneous clients | `max_clients` config value |
+| A/V sync delta | <100ms |
+| FATAL/segfault/panic in logs | 0 over 1-hour soak |
+| VmRSS drift over 1 hour | <100KB |
+| FD count drift over 1 hour | 0 |
+
+### 3.3 Automated Device Test Suite (Planned)
+
+A shell script (`raptor/tests/device/device-test.sh`) will SSH from a
+build host into T31/T41 devices and verify: daemon health (pidof),
+RTSP reachability (ffprobe), HTTP snapshot (curl), control socket
+(raptorctl), log cleanliness, and resource usage. Not yet implemented.
+
+---
+
+## 4. x86 Stub Testing
+
+The stub HAL generates synthetic frames on x86 without hardware. This
+validates all IPC, protocol, and daemon lifecycle logic natively.
+
+### 4.1 IPC Validation Matrix
+
+| Area | Validates | Key invariant |
+|------|-----------|---------------|
+| Multi-consumer ring | Concurrent readers on same SHM ring | No data corruption, consistent sequence numbers |
+| Ring overflow | Slow consumer falls behind | `RSS_EOVERFLOW` returned, recovery via next keyframe |
+| OSD double-buffer | SHM lifecycle across daemon restarts | RVD continues if ROD crashes; ROD reconnects on restart |
+| Control socket | Command dispatch and error handling | Invalid commands rejected, timeouts handled |
+| RTSP synthetic | Full compy RTP/RTSP stack | SDP generation, RTP packetization, client lifecycle |
+| Crash recovery | Producer killed, consumers detect stale ring | Ring reconnect after RVD restart, stream resumes |
+
+---
+
+## 5. SoC Compatibility
+
+### 5.1 Capability Matrix
+
+Key hardware feature differences that affect test coverage. Full matrix
+in [12-hal-caps.md](12-hal-caps.md).
+
+| Feature | T20 | T21 | T23 | T30 | T31 | T32 | T40 | T41 |
+|---------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| H.265 | - | - | - | Y | Y | Y | Y | Y |
+| Buffer sharing | - | - | - | - | Y | - | Y | Y |
+| Capped VBR | - | - | - | - | Y | Y | Y | Y |
+| Dynamic bitrate | - | - | - | - | Y | Y | Y | Y |
+| Dual sensor | - | - | _Sec | - | - | IMPVI | IMPVI | IMPVI |
+| ISP OSD | - | - | Y | - | - | Y | Y | Y |
+| HW rotation | - | - | - | - | Y | - | - | - |
+| IVDC | - | - | Y | - | - | Y | Y | Y |
+| XBurst 2 | - | - | - | - | - | - | Y | Y |
+
+### 5.2 SoC-Specific Test Considerations
+
+**T20/T21**: Graceful degradation tests. H.265 config falls back to
+H.264 with a warning. `set-bitrate` returns an error (unsupported).
+CAPPED_VBR silently maps to VBR. Old SDK enc_get_frame data layout
+(direct virAddr, no ring buffer wrap) is exercised.
+
+**T32**: Hybrid SDK path. Old-style type names with new-style internal
+structs. `SetDefaultParam` takes extra `uBufSize`. Extended encoder
+features (ROI, GDR, QP groups, VUI).
+
+**T40/T41**: Dual-core XBurst 2. IMPVI_NUM parameter on all ISP tuning
+calls. Multi-sensor support via independent MIPI ports. Hardware I2D
+rotation.
+
+---
+
+## 6. Validation Tools
+
+### 6.1 ffprobe — Stream Analysis
 
 ```sh
-# Analyze RTSP stream parameters
-ffprobe -show_format -show_streams \
-    -rtsp_transport tcp \
-    rtsp://camera:554/main
-
-# Packet-level analysis (NAL types, sizes, timestamps)
-ffprobe -show_packets -select_streams v \
-    -show_entries packet=codec_type,pts_time,dts_time,size,flags \
-    -rtsp_transport tcp \
-    rtsp://camera:554/main
-
-# Detect IDR frame interval (GOP verification)
-ffprobe -show_frames -select_streams v \
-    -show_entries frame=pict_type,key_frame,pts_time \
-    -rtsp_transport tcp -t 10 \
-    rtsp://camera:554/main 2>&1 | grep key_frame=1
+ffprobe -show_streams -of json -rtsp_transport tcp rtsp://camera:554/main
 ```
 
-### 4.2 Valgrind -- Memory Leak Detection (x86 Stub)
+Verifies codec, resolution, frame rate, and GOP structure. Packet-level
+analysis (`-show_packets`) detects timestamp inversions and IDR interval.
+
+### 6.2 Valgrind — Memory and Thread Safety
+
+Leak detection (`--leak-check=full`) and thread-safety analysis
+(Helgrind) on x86 stub builds. Complements ASAN for detecting use-after-free
+and race conditions that ASAN misses.
+
+### 6.3 ringdump — SHM Ring Inspector
 
 ```sh
-# Full leak check on RVD (run for 60 seconds then SIGTERM)
-valgrind --leak-check=full --show-leak-kinds=all \
-    --track-origins=yes --track-fds=yes \
-    --log-file=/tmp/rvd-valgrind.log \
-    ./rvd -c raptor.json &
-
-VG_PID=$!
-sleep 60
-kill -TERM $VG_PID
-wait $VG_PID
-
-# Review results
-grep -E "LEAK SUMMARY|ERROR SUMMARY" /tmp/rvd-valgrind.log
+ringdump main              # Show ring header
+ringdump main -f           # Follow frames (live)
+ringdump main -f -n 100   # Follow 100 frames then exit
+ringdump main -l           # Latency mode (capture-to-read pipeline delay)
+ringdump main -d | ffprobe -i -   # Dump payload for analysis
 ```
 
-Expected: zero leaked bytes, zero errors.
-
-```sh
-# Helgrind for thread-safety (race condition detection)
-valgrind --tool=helgrind --log-file=/tmp/rvd-helgrind.log \
-    ./rvd -c raptor.json &
-
-# Run consumers concurrently
-./rsd -c raptor.json &
-./rmr -c raptor.json &
-sleep 30
-kill $(pidof rvd rsd rmr)
+Header output:
+```
+Ring: /dev/shm/rss_ring_main
+Magic: 0x52535352 (valid)
+Version: 1
+Slots: 16
+Data size: 3145728
+Write seq: 12847
+Stream: 0 (main)
+Codec: H264
+Resolution: 1920x1080
+FPS: 25/1
 ```
 
-### 4.3 strace -- IPC Debugging
+Latency mode (`-l`) measures per-frame pipeline delay from IMP capture
+timestamp to ring readout. Reports min/avg/max in milliseconds.
+
+### 6.4 On-Target Quick Checks
 
 ```sh
-# Trace SHM operations
-strace -e shm_open,mmap,munmap,shm_unlink -f \
-    ./rvd -c raptor.json
-
-# Trace Unix socket operations
-strace -e socket,bind,listen,accept,connect,sendto,recvfrom -f \
-    ./rsd -c raptor.json
-
-# Trace eventfd operations (OSD notification)
-strace -e eventfd2,read,write -p $(pidof rvd)
-```
-
-### 4.4 ringdump -- SHM Ring Inspector
-
-Custom debug tool built as part of the raptor tree:
-
-```sh
-# Dump ring header
-ringdump -r main --header
-
-# Output:
-# Ring: /dev/shm/rss_ring_main
-# Magic: 0x52535352 (valid)
-# Version: 1
-# Slots: 16
-# Data size: 3145728
-# Write seq: 12847
-# Stream: 0 (main)
-# Codec: H264
-# Resolution: 1920x1080
-# FPS: 25/1
-
-# Dump last 5 frames metadata
-ringdump -r main -n 5 --meta
-
-# Output:
-# seq=12843 offset=1048576 len=84732 ts=1679846123456789 type=H264_SLICE key=0
-# seq=12844 offset=1133308 len=12451 ts=1679846123496789 type=H264_SLICE key=0
-# seq=12845 offset=1145759 len=9823  ts=1679846123536789 type=H264_SLICE key=0
-# seq=12846 offset=1155582 len=187234 ts=1679846123576789 type=H264_IDR key=1
-# seq=12847 offset=1342816 len=8234  ts=1679846123616789 type=H264_SLICE key=0
-
-# Dump one frame payload to file
-ringdump -r main -n 1 --payload > /tmp/frame.h264
-
-# Continuous monitoring (print stats every second)
-ringdump -r main --monitor
-```
-
-### 4.5 On-Target Quick Checks
-
-```sh
-# Check all SHM rings exist
-ls -la /dev/shm/rss_ring_*
-
-# Check control sockets exist
-ls -la /var/run/rss/*.sock
-
-# Check daemon PIDs
-for d in rvd rad rod rsd rmr ric; do
+for d in rvd rad rod rsd rmr ric rhd rmd rwd rwc; do
     pid=$(pidof $d 2>/dev/null)
     if [ -n "$pid" ]; then
         rss=$(awk '/VmRSS/{print $2}' /proc/$pid/status)
@@ -594,22 +272,19 @@ for d in rvd rad rod rsd rmr ric; do
         echo "$d: not running"
     fi
 done
-
-# Quick RTSP test
-wget -q -O /dev/null --timeout=5 \
-    "rtsp://localhost:554/main" 2>&1 && echo "RTSP OK" || echo "RTSP FAIL"
 ```
 
 ---
 
-## 5. Performance Benchmarks
+## 7. Performance Baselines
 
-### 5.1 CPU Usage
+Measured during initial development on T31 @ 1.5GHz XBurst with
+1080p@25fps H264 VBR 2Mbps. Re-measure after significant changes.
 
-Measured on T31 @ 1.5GHz XBurst with 1080p@25fps H264 VBR 2Mbps.
+### 7.1 CPU Usage
 
 | Daemon | Idle (no clients) | 1 RTSP Client | 2 RTSP Clients | Recording |
-|--------|-------------------|---------------|-----------------|-----------|
+|--------|------------------:|---------------:|----------------:|----------:|
 | RVD | ~8% | ~8% | ~8% | ~8% |
 | RAD | ~2% | ~2% | ~2% | ~2% |
 | ROD | ~1% | ~1% | ~1% | ~1% |
@@ -618,69 +293,24 @@ Measured on T31 @ 1.5GHz XBurst with 1080p@25fps H264 VBR 2Mbps.
 | RIC | <1% | <1% | <1% | <1% |
 | **Total** | **~12%** | **~17%** | **~20%** | **~15%** |
 
-RVD CPU is constant regardless of consumers because consumers read
-from SHM without producer involvement.
+RVD CPU is constant regardless of consumers — consumers read from SHM
+without producer involvement.
 
-Measurement method:
-```sh
-# 10-second CPU sampling per daemon
-for d in rvd rad rod rsd rmr ric; do
-    pid=$(pidof $d)
-    [ -z "$pid" ] && continue
-    top -b -n 10 -d 1 -p $pid | awk '/'"$d"'/{sum+=$9; n++} END{print "'$d':", sum/n "%"}'
-done
-```
-
-### 5.2 Latency: Frame Capture to RTP Send
-
-End-to-end latency from sensor capture to first RTP packet on the wire.
+### 7.2 End-to-End Latency
 
 | Stage | Latency (ms) | Notes |
-|-------|-------------|-------|
-| Sensor exposure + readout | ~33 (1/30fps) | Fixed by frame rate |
+|-------|-------------:|-------|
+| Sensor exposure + readout | ~33 | Fixed by frame rate (1/30fps) |
 | ISP processing | ~5 | Hardware pipeline |
 | Encoder | ~10 | Hardware H264 encoder |
 | RVD: enc_get_frame + ring_publish | <1 | Memory copy only |
 | RSD: ring_read + RTP packetize | <1 | Zero-copy + sendto() |
-| **Total (glass-to-glass)** | **~50** | Excluding network transit |
+| **Total (glass-to-wire)** | **~50** | Excluding network transit |
 
-Measurement method:
-```sh
-# Embed frame timestamp in OSD, capture with known-latency display
-# Compare OSD clock to wall clock
+### 7.3 Memory Budget
 
-# Alternative: measure RVD->RSD latency via timestamps
-# RVD logs: "published seq=N ts=T1"
-# RSD logs: "sent RTP seq=N ts=T2"
-# Latency = T2 - T1
-rvd -c raptor.json -f -v 2>&1 | grep "published" &
-rsd -c raptor.json -f -v 2>&1 | grep "sent RTP" &
-```
+T31 full stack (RVD + RAD + ROD + RSD + RMR + RIC), 64MB system:
 
-### 5.3 Memory Usage
-
-Measured on T31 with full stack (RVD + RAD + ROD + RSD + RMR + RIC).
-
-```sh
-# Snapshot memory usage
-echo "=== Per-daemon RSS ==="
-for d in rvd rad rod rsd rmr ric; do
-    pid=$(pidof $d)
-    [ -z "$pid" ] && continue
-    rss=$(awk '/VmRSS/{print $2}' /proc/$pid/status)
-    vsz=$(awk '/VmSize/{print $2}' /proc/$pid/status)
-    echo "$d: RSS=${rss}kB VSZ=${vsz}kB"
-done
-
-echo "=== SHM Rings ==="
-du -h /dev/shm/rss_ring_*
-
-echo "=== System Memory ==="
-free -k
-cat /proc/meminfo | grep -E "MemTotal|MemFree|MemAvailable|Buffers|Cached"
-```
-
-Target budgets (T31, 64MB):
 ```
 Kernel + drivers:     ~12MB
 RVD + SHM rings:       ~4MB
@@ -696,9 +326,7 @@ Available:            ~46MB  (out of 64MB visible to Linux)
 Headroom:             ~28MB  (for filesystem cache, tmpfs, user processes)
 ```
 
-### 5.4 Throughput
-
-Maximum sustained frame rate before frame drops, per SoC:
+### 7.4 Maximum Throughput
 
 | SoC | Max Main Stream | Max Sub Stream | Max Audio |
 |-----|----------------|----------------|-----------|
@@ -708,12 +336,12 @@ Maximum sustained frame rate before frame drops, per SoC:
 | T40 | 2560x1440@25fps H265 | 640x360@25fps H264 | 48kHz AAC |
 | T40 | 2x 1920x1080@25fps H264 (dual sensor) | 2x 640x360@15fps | 16kHz |
 
-### 5.5 Startup Time
+### 7.5 Startup Time
 
 Time from `S31raptor start` to first RTSP-playable frame:
 
 | Stage | Duration (ms) | Notes |
-|-------|-------------|-------|
+|-------|-------------:|-------|
 | RVD process spawn | ~50 | fork + exec |
 | HAL init (sensor detect) | ~800 | I2C probe, ISP init |
 | Pipeline create + bind | ~200 | FS + OSD + Enc create |
@@ -721,198 +349,13 @@ Time from `S31raptor start` to first RTSP-playable frame:
 | RSD process spawn + ring open | ~100 | Parallel with above |
 | **Total to first RTSP frame** | **~1500** | |
 
-Measurement:
-```sh
-# Timestamp before and after
-T0=$(date +%s%N)
-/etc/init.d/S31raptor start
-# Wait for first frame
-while ! raptorctl rvd status 2>/dev/null | grep -q "frames:"; do
-    usleep 10000
-done
-T1=$(date +%s%N)
-echo "Startup: $(( (T1 - T0) / 1000000 ))ms"
-```
+### 7.6 T20 FPS Impact
 
----
-
-## 6. Continuous Integration
-
-### 6.1 x86 Stub CI (Every Commit)
-
-Run on any x86 CI runner (GitHub Actions, local Jenkins):
-
-```sh
-# Build
-cmake -DRSS_SOC=STUB -DCMAKE_BUILD_TYPE=Debug -DRSS_SANITIZERS=ON ..
-make -j$(nproc)
-
-# Unit tests (librss_ipc)
-ctest --test-dir lib/librss_ipc/tests --output-on-failure
-
-# Integration: start daemons, verify SHM, stop
-./daemons/rvd/rvd -c ../config/raptor.json &
-sleep 2
-test -e /dev/shm/rss_ring_main || exit 1
-./tools/raptorctl/raptorctl rvd status | grep -q "running" || exit 1
-./tools/raptorctl/raptorctl rvd dump-frame > /dev/null || exit 1
-kill $(pidof rvd)
-
-# Valgrind (optional, slower)
-valgrind --leak-check=full --error-exitcode=1 \
-    timeout 10 ./daemons/rvd/rvd -c ../config/raptor.json
-```
-
-### 6.2 Cross-Build CI (Every Commit)
-
-Verify the project cross-compiles for all supported SoCs:
-
-```sh
-for soc in T20 T21 T23 T30 T31 T32 T40 T41; do
-    mkdir -p build-$soc && cd build-$soc
-    cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/mips-linux-gnu.cmake \
-          -DRSS_SOC=$soc ..
-    make -j$(nproc) || exit 1
-    cd ..
-done
-```
-
-### 6.3 Hardware CI (Nightly)
-
-On a T31 test camera connected to a CI agent:
-
-```sh
-# Deploy via NFS
-scp build-T31/daemons/*/rvd build-T31/daemons/*/rsd \
-    root@camera:/usr/bin/
-
-# Run test suite
-ssh root@camera '/etc/init.d/S31raptor start'
-sleep 5
-
-# RTSP smoke test
-ffprobe -rtsp_transport tcp -timeout 5000000 \
-    rtsp://camera:554/main 2>&1 | grep -q "Video: h264" || exit 1
-
-# Cleanup
-ssh root@camera '/etc/init.d/S31raptor stop'
-```
-
----
-
-## 7. ASan / UBSan Host Testing
-
-`build-asan.sh` builds all daemons for the x86_64 host with
-AddressSanitizer and UndefinedBehaviorSanitizer enabled. This is the
-primary memory-safety regression workflow and does not require hardware.
-
-### 7.1 How It Works
-
-- **RVD and RAD** use a mock HAL (`tests/mock_hal.c`) that implements
-  the full `rss_hal_ops_t` vtable with deterministic synthetic frames.
-  This replaces the real Ingenic SDK calls so the daemons can be linked
-  natively on x86.
-- **RSD, RHD, ROD, RIC** have no HAL dependency and build natively
-  without any mock.
-- All daemons are compiled with `-fsanitize=address,undefined
-  -fno-omit-frame-pointer`.
-
-### 7.2 Dummy Ring Setup
-
-`tests/create_rings.c` is a small utility that creates SHM rings in
-`/dev/shm/` pre-populated with fake JPEG frames. This allows RHD and
-ringdump to exercise their buffer paths without RVD running.
-
-### 7.3 Running
-
-```sh
-# Build all daemons with ASan
-./build-asan.sh
-
-# Create dummy SHM rings (JPEG ring with fake frames)
-./asan-out/create_rings &
-
-# Start daemons
-./asan-out/rvd -c config/raptor.json &
-./asan-out/rad -c config/raptor.json &
-./asan-out/rsd -c config/raptor.json &
-./asan-out/rhd -c config/raptor.json &
-./asan-out/rod -c config/raptor.json &
-./asan-out/ric -c config/raptor.json &
-
-# Exercise with clients
-for i in $(seq 1 100); do curl -s http://localhost:8080/snap.jpg > /dev/null; done
-for i in $(seq 1 10); do ffprobe -rtsp_transport tcp rtsp://localhost:554/main 2>/dev/null; done
-
-# Stop all daemons -- ASan reports memory leaks and UB on exit
-kill $(pidof rvd rad rsd rhd rod ric create_rings)
-wait
-```
-
-ASan writes its report to stderr. A clean run shows:
-
-```
-==PID==ERROR: LeakSanitizer: detected memory leaks
-... (zero leaks reported)
-```
-
-### 7.4 Stress Test Results
-
-The full suite has been stress tested with:
-- 4000 HTTP requests to RHD (`/snap.jpg` and `/mjpeg`)
-- 400 RTSP connection cycles to RSD
-
-Across all 6 daemons simultaneously, the result is zero memory leaks
-and zero UBSan errors reported by ASan at exit.
-
-### 7.5 RMR ASan Testing
-
-RMR is included in the `build-asan.sh` suite. Its test harness uses
-mock SHM rings pre-populated with continuous H.264 frames plus audio
-frames (via `tests/create_rings.c`), so the main loop exercises the
-full ring→muxer→write path without requiring RVD or RAD.
-
-**Segment rotation**: tested by setting `segment_minutes = 1` in the
-test config. The muxer closes and reopens files correctly across
-multiple rotation boundaries with no leaked file descriptors.
-
-**Memory safety audit results**: a dedicated audit pass over RMR's
-source found and fixed the following issues before release:
-
-| Severity | Issue | Fix |
-|----------|-------|-----|
-| CRITICAL | SPSC circular write buffer corrupted NAL data at wrap boundaries | Removed SPSC wbuf entirely; muxer writes directly to fd (single-threaded) |
-| CRITICAL | `malloc()` return unchecked in muxer box-building paths | All allocations now checked; fatal-log + clean shutdown on OOM |
-| HIGH | Integer overflow in box size calculation for large frames (>16MB) | Added overflow check before size accumulation |
-| HIGH | Audio DTS counter not reset on segment rotation | Counter now resets to 0 at each new segment |
-| HIGH | Unchecked `write()` return on full disk | Direct write retries on `EINTR`, logs and stops recording on `ENOSPC` |
-| HIGH | Storage cleanup walked directory with `readdir()` on the recording path without re-opening on each rotation | `opendir`/`closedir` now called per-cleanup pass |
-| HIGH | Segment file path buffer (256 bytes) could overflow with long base paths | Buffer increased to `PATH_MAX`; truncation now caught |
-
-ASan run outcome for RMR: zero memory leaks, zero UBSan violations across
-100 segment rotations and 10,000 mock frames processed.
-
----
-
-## 8. T20 FPS Benchmarking
-
-### 8.1 Methodology
-
-FPS is measured using `ringdump` in frame-flush mode with a fixed frame
-count:
-
-```sh
-ringdump -f -n 200
-```
-
-The `-f` flag enables timestamp-based fps calculation (wall time of
-first frame to wall time of last frame divided by count). `-n 200`
-collects 200 frames, giving a stable average over ~6 seconds at 30fps.
-
-### 8.2 T20 Test Configurations
+JPEG channels on T20 share encoder bandwidth with video channels,
+reducing main stream FPS. OSD has zero impact.
 
 | OSD | JPEG Channels | Measured FPS |
-|-----|--------------|-------------|
+|:---:|:-------------:|:------------:|
 | off | 0 | 30 |
 | on  | 0 | 30 |
 | off | 1 (jpeg0 only) | ~25 |
@@ -920,17 +363,17 @@ collects 200 frames, giving a stable average over ~6 seconds at 30fps.
 | off | 2 (jpeg0 + jpeg1) | ~23 |
 | on  | 2 (jpeg0 + jpeg1) | ~23 |
 
-Key findings:
-- OSD has **zero fps impact** on T20. The OSD render path (ROD daemon)
-  is fully asynchronous; it does not consume encoder resources.
-- Each JPEG channel costs approximately 5fps due to the T20 SDK's shared
-  encoder resource model (JPEG channels compete with video channels for
-  encoder bandwidth).
-- Users who do not need sub-stream snapshots should set
-  `jpeg1_enabled = false` in `[jpeg]` config.
+T31 runs at full 30fps with both JPEG channels and OSD enabled. The T31
+SDK does not have the shared-resource contention seen on T20.
 
-### 8.3 T31 Reference
+---
 
-T31 runs at full **30fps** with both JPEG channels and OSD enabled
-simultaneously. The T31 SDK does not have the shared-resource contention
-seen on T20.
+## 8. Continuous Integration (Planned)
+
+Not yet implemented. Target pipeline:
+
+| Stage | Trigger | Runner | Validates |
+|-------|---------|--------|-----------|
+| Unit tests | Every commit | x86 | 266 tests with ASAN (`make test` per repo, `ctest` for compy) |
+| Cross-build | Every commit | x86 | Compile for all 8 SoCs (`make PLATFORM=$SOC CROSS_COMPILE=mipsel-linux-`) |
+| Hardware smoke | Nightly | T31 on CI runner | RTSP reachability, daemon startup, log cleanliness |

@@ -1100,6 +1100,14 @@ case "$1" in
 esac
 ```
 
+**Core vs. optional daemons:** The default init script starts the five
+core daemons unconditionally: RVD, RAD, ROD, RSD, and RIC. The
+remaining daemons (RHD, RMR, RMD, RWD, RWC) are optional -- enable
+them in `raptor.conf` and add their `start-stop-daemon` lines to the
+init script, or start them manually. Each daemon checks its own
+`[section] enabled` flag and exits cleanly if disabled, so adding a
+line for an optional daemon is safe even when the feature is off.
+
 ---
 
 ## 5. Crash Recovery
