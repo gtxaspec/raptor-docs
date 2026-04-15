@@ -229,6 +229,19 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Network**: Dual-stack IPv6 (AF_INET6 with IPV6_V6ONLY=0), port 554.
   Per-client RTP timestamp offsets ensure each client sees timestamps
   starting from zero on connect (set on first keyframe delivery).
+- **Send architecture**: Per-client send threads decouple the ring reader
+  from network I/O. The ring reader reads each frame into a single shared
+  `frame_buf`, then hands direct pointers (zero-copy) to each client's
+  send queue. An atomic refcount barrier on the ring context prevents the
+  reader from overwriting `frame_buf` until all send threads are done.
+  The last send thread to finish signals a condvar for zero-latency
+  reader wakeup. Video is fully zero-copy (one `ring_read` from SHM,
+  no per-client memcpy). Audio uses small malloc copies (<4KB) because
+  the burst read loop requires independent buffers. This design eliminates
+  TLS-induced pixelation: software mbedTLS on MIPS can consume 30-50% CPU,
+  and blocking TLS writes in the reader caused frame skips and IDR storms.
+  With the sendq, TLS work is isolated per-client and the reader never
+  blocks on I/O.
 - **Why separate**: RTSP client management (socket I/O, RTP packetization,
   RTCP) is complex and has its own failure modes (slow clients, network
   errors). Isolating it means a misbehaving RTSP client cannot affect
@@ -266,6 +279,16 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   - GET-only: all other methods return `405 Method Not Allowed`.
 - **Client listing**: `raptorctl rhd clients` shows connected clients
   with IP and type (mjpeg/snapshot).
+- **Send architecture**: Per-client send threads for MJPEG and audio
+  streaming. Unlike RSD, RHD reads rings in the main epoll loop (not a
+  dedicated reader thread), so a barrier-based zero-copy design would
+  block connection handling. Instead, frames are malloc-copied into
+  per-client send queues. Each streaming client gets a send thread at
+  `/mjpeg` or `/audio` request time; the thread drains the queue through
+  blocking HTTP writes. Send errors flag the queue for shutdown;
+  the main loop detects this on the next push and removes the client.
+  MJPEG frames are independent (no reference frames) so drops are
+  harmless — the client just sees a slightly older image.
 - **Why separate**: HTTP and RTSP are different protocols with different
   connection lifecycles. RHD can serve snapshots even if RSD is down.
 
