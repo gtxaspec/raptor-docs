@@ -62,8 +62,14 @@ by first byte (RFC 7983):
 | `rwd_media.c` | Ring reader → SRTP sender for video + audio |
 | `rwd_webtorrent.c` | WebTorrent tracker client for external sharing (optional) |
 | `rwd.h` | Shared types: client, server, DTLS context, SDP offer |
-| `webrtc.html` | Embedded local viewer page |
+| `webrtc.html` | Embedded local viewer page (served at `GET /webrtc`) |
 | `share.html` | External viewer page (WebTorrent) |
+
+Both viewer pages support a `?debug` query parameter that enables
+verbose console logging: ICE candidates, SDP offer/answer (collapsed
+groups with extracted codecs), connection state transitions, periodic
+stats (fps, bitrate, packet loss, RTT every 5s), and mic events.
+Silent by default — zero overhead when not enabled.
 
 ### Reused from compy
 

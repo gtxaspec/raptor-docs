@@ -1256,25 +1256,55 @@ all daemons that map the same ring).
 
 ### 6.4 T23 (32MB Systems)
 
-On 32MB systems, run a minimal set:
+On 32MB systems (T23DL: `mem=22M` + `rmem=10M`), Linux sees ~16MB.
+Confirmed working with RVD + RSD + RAD (video + RTSP + audio):
 
 ```
-RVD + RSD only:           ~18MB total (kernel + ISP + video + RTSP)
-RVD + RSD + RAD:          ~19MB total (adds audio)
-RVD + RSD + RAD + ROD:    ~20MB total (adds OSD)
+Raptor memory breakdown (T23DL, main+sub+audio):
+  RVD private:        2,524 KB
+  RSD private:          396 KB
+  RAD private:          596 KB
+  Shared libs:          852 KB
+  SHM rings:            525 KB  (main 260 + sub 132 + audio 133)
+  Total:             ~3,813 KB
 ```
 
-RMR, RSP, RV4 are omitted on 32MB systems unless absolutely needed.
-RIC can run if IR-cut control is required (~128KB additional).
+Recommended config for 32MB:
+
+```ini
+[stream0]
+bitrate = 1500000
+rc_mode = vbr
+ivdc = true              # required for dual-stream on 10MB rmem
+
+[stream1]
+enabled = true
+width = 320
+height = 176             # must align to 8 (180 fails IMP SDK check)
+fps = 15
+bitrate = 300000
+jpeg = false
+osd_enabled = false
+
+[ring]
+main_slots = 4
+main_data_mb = 0         # auto-size from bitrate (~260KB at 1.5Mbps)
+sub_slots = 4
+sub_data_mb = 0          # auto-size (~132KB at 300kbps)
+```
 
 Key optimizations for 32MB:
-- **Auto-ring sizing** (`main_data_mb = 0`): reduces ring allocation
-  from 4MB to ~640KB for a 720p@25fps 1Mbps stream.
-- **Stream0 defaults to sensor resolution**: prevents accidental
-  1920x1080 allocation on a 720p sensor.
-- **IVDC** (when SDK supports it): reduces rmem from 11M to ~8M by
-  using line buffers instead of frame buffers.
-- **Single-stream mode**: disable `[stream1]` to halve encoder memory.
+- **IVDC required**: Without IVDC, `IMP_FrameSource_CreateChn(1)` fails
+  on 10MB rmem — the scaler framebuffer doesn't fit. IVDC bypasses
+  frame buffers, enabling dual-stream.
+- **Sub stream height alignment**: IMP SDK requires width aligned to 16,
+  height aligned to 8. 320x180 fails; use 320x176.
+- **Ring slot count**: 4 slots is sufficient for 2 RTSP clients.
+  Auto-sizing (`_data_mb = 0`) sizes from bitrate, avoiding over-allocation.
+- **Disable sub JPEG/OSD**: Each costs encoder channel memory in rmem
+  and ring buffer memory in Linux.
+- **Lower bitrate**: 1.5Mbps VBR at 720p is adequate for surveillance
+  and halves ring allocation vs 3Mbps CBR.
 
 ---
 
@@ -1760,9 +1790,10 @@ and no dynamic bitrate support; RVD falls back to H264 and logs a
 warning if H265 is requested in config. All consumer daemons are
 codec-agnostic and work without modification.
 
-T23DL is the most constrained platform (32MB RAM). Auto-ring sizing
-and single-stream mode are essential. IVDC support is implemented but
-requires a newer T23 SDK build for on-device testing.
+T23DL is the most constrained platform (32MB RAM, 10MB rmem). IVDC is
+required for dual-stream — without it the second framesource channel
+fails to allocate. Confirmed running RVD+RSD+RAD with main 720p +
+sub 320x176 + audio, ~3.8MB total raptor memory.
 
 T41 uses the IMPVI SDK (XB2 generation). It does not need the uclibc
 shim library — native uclibc libs work directly, and linking the shim
