@@ -715,7 +715,21 @@ static IMPOsdRgnType hal_translate_osd_type(rss_osd_type_t type) {
 
 The key safety rule: **always use the enum symbol, never a hardcoded integer.** The compiler resolves the correct value per SDK.
 
-### 7.3 ISP OSD Signature Difference
+### 7.3 ISP OSD Struct Differences
+
+The `IMPIspOsdAttrAsm` type wraps platform-specific structs that vary across SoCs:
+
+| Aspect | T23 (1.3.0) | T32 (1.0.6) / T41 (1.2.5) | T40 (1.3.1) |
+|--------|-------------|---------------------------|-------------|
+| Single attr type | `IMPISPOSDSingleAttr` | `IMPISPOSDSingleAttr` | `IMPISPSingleOSDAttr` |
+| `chx` field | Yes | No | Yes |
+| `sensornum` field | Yes | No | No |
+| Channel attrs | Nested `chnOSDAttr` | Nested `chnOSDAttr` | Flat (`osd_type`, `osd_argb_type`, `osd_pixel_alpha_disable`) |
+| Picture handle | `pic.pinum` | `pic.pinum` | `pic_num` (top-level) |
+
+The HAL branches on platform defines for struct field access. Common `pic` fields (`osd_left`, `osd_top`, `osd_width`, `osd_height`, `osd_image`, `osd_stride`) are the same across all platforms.
+
+ISP OSD mask/cover (`hal_isp_osd_set_mask`): implemented for T23/T32 only. T40/T41 `IMPISPMASKAttr` uses a different layout (`mask_chx[3][4]` array vs individual fields) — returns `RSS_ERR_NOTSUP` until implemented.
 
 `IMP_OSD_SetRgnAttr_ISP` has a different signature on T23 vs T32/T40/T41:
 
