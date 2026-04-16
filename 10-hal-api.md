@@ -764,6 +764,16 @@ typedef struct rss_hal_ops {
     int (*fs_create_channel)(void *ctx, int chn, const rss_fs_config_t *cfg);
 
     /*
+     * fs_set_channel_attr -- reconfigure a framesource channel.
+     *
+     * Updates resolution, scaler, crop, and FPS on a DISABLED channel
+     * (call fs_disable_channel first). Used for runtime resolution
+     * changes without destroying and recreating the channel.
+     * Wraps IMP_FrameSource_SetChnAttr() only (no CreateChn).
+     */
+    int (*fs_set_channel_attr)(void *ctx, int chn, const rss_fs_config_t *cfg);
+
+    /*
      * fs_destroy_channel -- destroy a framesource channel.
      */
     int (*fs_destroy_channel)(void *ctx, int chn);

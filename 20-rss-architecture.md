@@ -100,6 +100,22 @@ ring buffers. Exactly one instance of each runs per camera.
   Runtime updates use UpdateRgnAttrData with a heap-allocated local_buf
   (SDK DMA requires non-SHM memory). Privacy mode uses OSD_REG_COVER at
   layer 0, toggled via raptorctl.
+- **Hot restart**: Individual streams can be torn down and rebuilt at
+  runtime without restarting RVD. The pipeline is split into three layers:
+  - **Layer 1** (init once): HAL, sensors, framesource channels, OSD pool.
+  - **Layer 2** (restartable): encoder group/channel, OSD groups/regions,
+    bind chain, SHM ring. `rvd_stream_init()` / `rvd_stream_deinit()`.
+  - **Layer 3** (start/stop): FS enable/disable, encoder start/stop,
+    encoder thread. `rvd_stream_start()` / `rvd_stream_stop()`.
+  Hot restart enables runtime codec switch (H.264↔H.265), resolution
+  change, and OSD pool resize (for font size). Consumers (RSD/RWD/RMR)
+  detect ring reconnection and adapt automatically. RSD disconnects
+  clients on codec change (RTSP can't renegotiate SDP mid-session).
+- **IVS and hot restart**: The Ingenic SDK cannot recreate IVS channels
+  after destruction without full system reinit. Hot restart uses
+  `rvd_ivs_pause()` / `rvd_ivs_resume()` (StopRecvPic/StartRecvPic)
+  to keep the channel alive across stream restarts. Full `rvd_ivs_stop()`
+  (which destroys the channel) is only used during process shutdown.
 - **Why separate**: The video pipeline is the critical path. Isolating
   it means audio glitches, OSD rendering delays, or RTSP client
   disconnects cannot stall frame production.
@@ -117,18 +133,37 @@ ring buffers. Exactly one instance of each runs per camera.
     privacy mode is toggled on via raptorctl.
 - **HAL dependency**: None. ROD does not touch the HAL. It renders
   bitmaps in userspace using libschrift for font rendering with a glyph
-  cache (O(1) ASCII lookup). The font is loaded once and shared across
-  streams using different SFT scale factors.
-- **Per-stream scaling**: Font size is auto-scaled for the sub stream
-  (proportional to resolution) with a configurable override per stream.
+  cache (O(1) ASCII lookup). The font file is loaded once and shared
+  across all font contexts.
+- **Per-element font sizing**: Each text element (time, uptime, text)
+  can have its own font size via `time_font_size`, `uptime_font_size`,
+  `text_font_size` config keys (0 = use global `font_size`). Font
+  contexts are stored as `fonts[stream][element]` — 3 per stream.
+  Privacy text reuses the time font.
+- **Per-stream scaling**: Font sizes auto-scale for sub-streams
+  (proportional to resolution ratio) with a minimum of 12px.
+- **Runtime font size change**: `set-font-size` (global) or
+  `set-time-font-size` etc. (per-element) re-rasterizes glyphs,
+  recreates SHM regions with new dimensions, and notifies RVD via
+  `osd-restart` to resize the OSD pool and recreate HAL regions.
+- **Element show/hide**: `enable-time`, `enable-uptime`, `enable-text`,
+  `enable-logo` toggle visibility via RVD's `osd-show` command (single
+  HAL `osd_show_region` call — no pipeline restart). Optional stream
+  parameter for per-stream control.
+- **Element positioning**: `set-position` moves elements to named
+  positions (`top_left`, `bottom_right`, `center`, etc.) or absolute
+  `x,y` coordinates via RVD's `osd-position` command (single HAL
+  `SetRgnAttr` call). Coordinates are clamped to stream dimensions.
+  Optional stream parameter.
 - **Text alignment**: Left for time, right for uptime, center for
   description and privacy text.
 - **Outputs**: OSD SHM double-buffer (one per OSD region per stream
   channel). Sets dirty flag after each update; RVD's OSD thread polls
   dirty flags.
-- **Control socket**: Accepts `set-text` command to change the OSD text
-  string at runtime. Input is sanitized: control characters (bytes < 0x20)
-  are replaced with spaces to prevent OSD rendering corruption.
+- **RVD coordination**: ROD communicates with RVD via control socket
+  for operations that require HAL access (show/hide, positioning,
+  OSD restart). SHM dimension probing allows RVD to match region
+  sizes to ROD's actual glyph metrics on first open.
 - **Render loop**: 1Hz cycle — renders all dirty regions, updates SHM
   double-buffers.
 - **Heartbeat**: ROD sends a 1Hz `rss_osd_heartbeat()` (dirty flag
@@ -165,6 +200,12 @@ ring buffers. Exactly one instance of each runs per camera.
 - **Inputs**: Speaker SHM ring (output/playback path).
 - **Thread model**: Main thread (AI read loop + control socket), AO
   playback thread (speaker ring consumer).
+- **Runtime codec switch**: `raptorctl rad set-codec <pcmu|pcma|l16|aac|opus>`
+  tears down the audio pipeline (codec, ring, HAL audio), reinitializes
+  with the new codec and sample rate (G.711 forces 8kHz), re-applies
+  audio effects, and resumes. Old codec state is saved for rollback
+  on failure. Config persisted only after success. Consumers detect
+  ring reconnection and re-read codec from ring header.
 - **Why separate**: Audio runs on a fixed-period schedule (typically
   20ms frame intervals). Isolating it from video prevents encoder
   stalls from causing audio discontinuities and vice versa. RAD can
@@ -528,7 +569,21 @@ These daemons control hardware peripherals and do not process frame data.
   - `raptorctl rvd set-gop <ch> <length>` -- change GOP length
   - `raptorctl rvd set-fps <ch> <fps>` -- change frame rate
   - `raptorctl rvd set-qp-bounds <ch> <min> <max>` -- change QP range
+  - `raptorctl rvd stream-restart <ch>` -- hot restart a stream (teardown + rebuild)
+  - `raptorctl rvd set-codec <ch> <h264|h265>` -- runtime codec switch
+  - `raptorctl rvd set-resolution <ch> <w> <h>` -- runtime resolution change
+  - `raptorctl rvd osd-restart [pool_kb]` -- restart all OSD (for font size changes)
   - `raptorctl rod privacy [on|off] [channel]` -- toggle privacy mode (all or per-stream)
+  - `raptorctl rod set-font-size <10-72>` -- global font size (triggers OSD restart)
+  - `raptorctl rod set-time-font-size <10-72>` -- per-element font size
+  - `raptorctl rod set-uptime-font-size <10-72>` -- per-element font size
+  - `raptorctl rod set-text-font-size <10-72>` -- per-element font size
+  - `raptorctl rod enable-time <0|1> [stream]` -- show/hide timestamp
+  - `raptorctl rod enable-uptime <0|1> [stream]` -- show/hide uptime
+  - `raptorctl rod enable-text <0|1> [stream]` -- show/hide camera text
+  - `raptorctl rod enable-logo <0|1> [stream]` -- show/hide logo
+  - `raptorctl rod set-position <elem> <pos> [stream]` -- move element
+  - `raptorctl rad set-codec <codec>` -- runtime audio codec switch
   - `raptorctl rad set-volume <val>` -- change audio input volume
   - `raptorctl rad set-gain <val>` -- change audio input gain
   - `raptorctl rad set-ns <0|1> [level]` -- noise suppression
