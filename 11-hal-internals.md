@@ -729,7 +729,7 @@ The `IMPIspOsdAttrAsm` type wraps platform-specific structs that vary across SoC
 
 The HAL branches on platform defines for struct field access. Common `pic` fields (`osd_left`, `osd_top`, `osd_width`, `osd_height`, `osd_image`, `osd_stride`) are the same across all platforms.
 
-ISP OSD mask/cover (`hal_isp_osd_set_mask`): implemented for T23/T32 only. T40/T41 `IMPISPMASKAttr` uses a different layout (`mask_chx[3][4]` array vs individual fields) — returns `RSS_ERR_NOTSUP` until implemented.
+ISP OSD mask/cover (`hal_isp_osd_set_mask`): implemented for all ISP OSD platforms. T23/T32 use `IMP_OSD_MultiCamera_SetRgnAttr_ISP` via `IMPOSDRgnAttr.stCoverAttr`. T41 uses `IMP_ISP_Tuning_SetMaskBlock` with per-block `IMPISPMaskBlockAttr`. T40 uses `IMP_ISP_Tuning_SetMask` with array-based `IMPISPMASKAttr.mask_chx[chx][pinum]`.
 
 `IMP_OSD_SetRgnAttr_ISP` has a different signature on T23 vs T32/T40/T41:
 
