@@ -1558,6 +1558,13 @@ max_clients = 4
 # tls = false            # enable RTSPS (default port changes to 322)
 # tls_cert = /etc/ssl/certs/uhttpd.crt
 # tls_key = /etc/ssl/private/uhttpd.key
+# tls_cipher_preference = default   # default | chacha20
+#   default  — mbedtls built-in order (GCM-first in TLS 1.3); best on
+#              x86/ARM with AES-NI or ARMv8-crypto.
+#   chacha20 — force TLS 1.3 to ChaCha20-Poly1305 only. Optimal on slow
+#              MIPS SoCs where AES runs through /dev/aes — every GCM
+#              record costs an ioctl, scalar userspace ChaCha20 wins at
+#              typical RTSPS bitrates (~3 Mbps).
 
 [http]
 enabled = true
