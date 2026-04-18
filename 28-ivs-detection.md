@@ -73,7 +73,7 @@ roi0 = 100,50,400,300         # x0,y0,x1,y1 in sub-stream pixel space
 roi1 = 420,50,600,300         # additional ROI regions as needed
 
 # persondet algorithm
-det_distance = 50             # minimum detection distance threshold
+det_distance = 2              # detection distance index (0=6m 1=8m 2=10m 3=11m 4=13m)
 motion_trigger = true         # require move pre-trigger before persondet inference
 
 # yolo algorithm

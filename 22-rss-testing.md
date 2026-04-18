@@ -2,7 +2,7 @@
 
 Testing spans four layers: unit tests on x86 with AddressSanitizer,
 full-daemon ASAN integration with a mock HAL, on-device validation on
-real cameras, and performance benchmarking. 266 unit tests across the
+real cameras, and performance benchmarking. 340 unit tests across the
 raptor ecosystem pass under ASAN with zero errors.
 
 ---
@@ -15,11 +15,11 @@ single-header C test framework. Every test binary compiles with
 time. Raptor repos build and run tests with `make test` in each `tests/`
 directory. Compy uses CMake.
 
-### 1.1 raptor-common (56 tests, 5 suites)
+### 1.1 raptor-common (62 tests, 5 suites)
 
 | Suite | File | Tests | Coverage |
 |-------|------|------:|----------|
-| config | test_config.c | 14 | INI parser: load, get/set str/int/bool, sections, iteration, roundtrip, edge cases |
+| config | test_config.c | 20 | INI parser: load, get/set str/int/bool, sections, iteration, roundtrip, foreach, edge cases |
 | util | test_util.c | 17 | strlcpy, trim, starts_with, secure_compare — truncation, empty, exact fit |
 | json | test_json.c | 6 | JSON string/int extraction, missing keys, truncation |
 | http | test_http.c | 10 | Base64 decode (padding, overflow), HTTP basic auth validation |
@@ -41,13 +41,16 @@ cd raptor-common/tests && make test
 cd raptor-ipc/tests && make test
 ```
 
-### 1.3 raptor/rmr (35 tests, 3 suites)
+### 1.3 raptor (97 tests, 6 suites)
 
 | Suite | File | Tests | Coverage |
 |-------|------|------:|----------|
-| nal | test_nal.c | 9 | Annex B → AVCC conversion (H.264, H.265, 3-byte start codes), empty/overflow, single NAL, SPS/PPS extraction |
+| nal | test_nal.c | 12 | Annex B → AVCC conversion (H.264, H.265, 3-byte start codes), empty/overflow, single NAL, SPS/PPS extraction |
 | prebuf | test_prebuf.c | 9 | Pre-buffer push/count, slot eviction, keyframe find by age, frame-at lookup, iterate with data verification, data region wrap integrity |
 | mux | test_mux.c | 17 | fMP4 box construction (moov/moof/mdat/mfra), H.264/H.265/PCMU/AAC/Opus codec paths, multi-fragment, large timestamps (64-bit tfdt), CTS offset, empty/double flush, A/V duration verification |
+| sdp | test_sdp.c | 17 | SDP offer parsing, answer generation, ICE candidate extraction, codec negotiation |
+| codec | test_codec.c | 28 | Codec detection, parameter set parsing, frame type identification |
+| ring | test_ring.c | 14 | Ring buffer create/open, publish/read, overflow, IDR request, demand signaling |
 
 ```
 cd raptor/tests && make test
@@ -81,8 +84,8 @@ under AddressSanitizer, using a mock HAL instead of real hardware.
 
 `tests/mock_hal.c` implements the full `rss_hal_ops_t` vtable with
 deterministic synthetic frames. RVD, RAD, and ROD link against the mock.
-RSD, RHD, RIC, RMD, and RMR have no HAL dependency and build natively.
-RWD is excluded (requires mbedTLS DTLS-SRTP, not available on x86 host).
+RSD, RHD, RIC, RMD, RMR, RWD, and RWC have no HAL dependency and build
+natively. RWD links against the host's mbedTLS for DTLS-SRTP.
 
 `./build-asan.sh` compiles all daemons to `asan-out/` with
 `-fsanitize=address,undefined -fno-omit-frame-pointer`.
@@ -368,12 +371,18 @@ SDK does not have the shared-resource contention seen on T20.
 
 ---
 
-## 8. Continuous Integration (Planned)
+## 8. Continuous Integration
 
-Not yet implemented. Target pipeline:
+Three GitHub Actions workflows in `.github/workflows/`:
 
-| Stage | Trigger | Runner | Validates |
-|-------|---------|--------|-----------|
-| Unit tests | Every commit | x86 | 266 tests with ASAN (`make test` per repo, `ctest` for compy) |
-| Cross-build | Every commit | x86 | Compile for all 8 SoCs (`make PLATFORM=$SOC CROSS_COMPILE=mipsel-linux-`) |
-| Hardware smoke | Nightly | T31 on CI runner | RTSP reachability, daemon startup, log cleanliness |
+| Workflow | Trigger | What it does |
+|----------|---------|-------------|
+| `build.yml` | Every commit | Cross-compile uclibc static build for all 8 SoCs |
+| `build-musl.yml` | Every commit | Cross-compile musl build |
+| `tests.yml` | Every commit | Host-side ASAN unit tests (`make test` per repo) |
+
+| Stage | Runner | Validates |
+|-------|--------|-----------|
+| Unit tests | x86 | 340 tests with ASAN across raptor-common, raptor-ipc, raptor |
+| Cross-build | x86 | Compile for all 8 SoCs (`make PLATFORM=$SOC CROSS_COMPILE=mipsel-linux-`) |
+| Hardware smoke | (planned) | RTSP reachability, daemon startup, log cleanliness |

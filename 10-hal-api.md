@@ -239,8 +239,21 @@ typedef struct {
     uint32_t        fps_num;       /* numerator (e.g. 25) */
     uint32_t        fps_den;       /* denominator (e.g. 1) */
 
+    /* QP deltas (0 = SDK default) */
+    int16_t         ip_delta;      /* I-P QP delta */
+    int16_t         pb_delta;      /* P-B QP delta */
+    int32_t         max_psnr;      /* max PSNR target; 0 = disabled */
+
     /* GOP */
     uint32_t        gop_length;    /* GOP length in frames */
+    rss_gop_mode_t  gop_mode;      /* GOP mode (normal, smartp, dualp) */
+
+    /* RC options bitmask (RSS_RC_OPT_*); 0 = defaults */
+    uint32_t        rc_options;
+
+    /* IVDC (ISP-VPU Direct Connect) — line-buffer mode.
+     * Reduces rmem usage on T23/T32/T41. */
+    bool            ivdc;
 
     /* Optional: buffer size hint; 0 = SDK default */
     uint32_t        buf_size;
@@ -427,7 +440,7 @@ typedef enum {
 } rss_sensor_mclk_t;
 
 typedef struct {
-    char                name[32];       /* sensor driver name (e.g. "gc2053") */
+    char                name[20];       /* sensor driver name (e.g. "gc2053") */
     uint16_t            i2c_addr;       /* 7-bit I2C address */
     int                 i2c_adapter;    /* I2C bus number */
     uint16_t            sensor_id;      /* sensor ID; 0 if unused (T20/T21/T30/T31) */
@@ -441,14 +454,27 @@ typedef struct {
     int                 rst_gpio;
     int                 pwdn_gpio;
     int                 power_gpio;
-
-    /* Sensor maximum frame rate.
-     * 0 = auto-detect: RVD reads /proc/jz/sensor/max_fps at startup
-     *     and uses that value. This is the recommended default.
-     * >0 = use the specified fps, overriding the procfs value.
-     * Exposed as [sensor] fps = 0 in raptor.conf. */
-    uint32_t            max_fps;
 } rss_sensor_config_t;
+
+/*
+ * rss_multi_sensor_config_t -- multi-sensor init configuration.
+ *
+ * Wraps up to RSS_MAX_SENSORS (3) sensor configs for multi-camera
+ * setups (T23 dual-sensor, T40/T41 IMPVI). Single-sensor devices
+ * use the rss_hal_init_single() convenience inline (below).
+ */
+#define RSS_MAX_SENSORS 3
+
+typedef struct {
+    int                 sensor_count;       /* number of active sensors */
+    rss_sensor_config_t sensors[RSS_MAX_SENSORS];
+
+    /* MIPI switch GPIO (T23 dual sensor); -1 = unused */
+    int                 mipi_switch;
+
+    /* Stitch mode for multi-sensor compositing; 0 = independent */
+    int                 stitch_mode;
+} rss_multi_sensor_config_t;
 ```
 
 ### 2.13 ISP Exposure Info (for RIC)
@@ -477,8 +503,16 @@ typedef struct {
  * On new SDK: mapped to IMP_ISP_Tuning_SetAwbAttr.
  */
 typedef enum {
-    RSS_WB_AUTO    = 0,
-    RSS_WB_MANUAL  = 1,
+    RSS_WB_AUTO             = 0,
+    RSS_WB_MANUAL           = 1,
+    RSS_WB_DAYLIGHT         = 2,
+    RSS_WB_CLOUDY           = 3,
+    RSS_WB_INCANDESCENT     = 4,
+    RSS_WB_FLOURESCENT      = 5,
+    RSS_WB_TWILIGHT         = 6,
+    RSS_WB_SHADE            = 7,
+    RSS_WB_WARM_FLOURESCENT = 8,
+    RSS_WB_CUSTOM           = 9,
 } rss_wb_mode_t;
 
 typedef struct {
@@ -545,6 +579,8 @@ typedef enum {
 typedef enum {
     RSS_DEV_FS  = 0,   /* FrameSource */
     RSS_DEV_ENC = 1,   /* Encoder */
+    RSS_DEV_DEC = 2,   /* Decoder */
+    RSS_DEV_IVS = 3,   /* IVS (motion, person detection) */
     RSS_DEV_OSD = 4,   /* OSD */
 } rss_dev_id_t;
 
@@ -663,9 +699,20 @@ typedef struct {
 
     /* --- OSD features --- */
     bool has_isp_osd;               /* ISP-level OSD (T23/T32/T40/T41) */
+    int  max_isp_osd_regions;       /* max ISP OSD regions per group */
     bool has_osd_mosaic;            /* mosaic blur regions (T23/T32/T40/T41) */
-    bool has_osd_pic_rmem;          /* PIC from reserved memory (T31+) */
-    bool has_osd_callback;          /* per-frame OSD callback (T40/T41) */
+    bool has_extended_osd_types;    /* extended OSD region types (T31+) */
+    bool has_osd_group_callback;    /* per-frame OSD group callback (T40/T41) */
+    bool has_osd_region_invert;     /* region color inversion (T32+) */
+
+    /* --- SDK generation flags --- */
+    bool uses_new_sdk;              /* T31/T32 new-style encoder API */
+    bool uses_impvi;                /* T40/T41 IMPVI_NUM on ISP calls */
+    bool uses_xburst2;              /* T40/T41 XBurst2 ISA */
+
+    /* --- Multi-sensor --- */
+    int  max_sensors;               /* 1 for most SoCs, 2-3 for T23/T32/T40/T41 */
+    bool has_t23_multicam_api;      /* T23-style _Sec secondary sensor API */
 } rss_hal_caps_t;
 ```
 
@@ -701,7 +748,7 @@ typedef struct rss_hal_ops {
      *
      * Must be called before any other HAL operation.
      */
-    int (*init)(void *ctx, const rss_sensor_config_t *sensor_cfg);
+    int (*init)(void *ctx, const rss_multi_sensor_config_t *multi_cfg);
 
     /*
      * deinit -- tear down the hardware pipeline.
@@ -1047,10 +1094,10 @@ typedef struct rss_hal_ops {
      *
      * val: [0..255], 128 = neutral.
      */
-    int (*isp_set_brightness)(void *ctx, uint8_t val);
-    int (*isp_set_contrast)(void *ctx, uint8_t val);
-    int (*isp_set_saturation)(void *ctx, uint8_t val);
-    int (*isp_set_sharpness)(void *ctx, uint8_t val);
+    int (*isp_set_brightness)(void *ctx, int val);
+    int (*isp_set_contrast)(void *ctx, int val);
+    int (*isp_set_saturation)(void *ctx, int val);
+    int (*isp_set_sharpness)(void *ctx, int val);
 
     /*
      * isp_set_hue -- set BCSH hue.
@@ -1058,7 +1105,7 @@ typedef struct rss_hal_ops {
      * Only available on T23/T31/T32/T40/T41 (has_bcsh_hue).
      * Returns -ENOTSUP on T20/T21/T30.
      */
-    int (*isp_set_hue)(void *ctx, uint8_t val);
+    int (*isp_set_hue)(void *ctx, int val);
 
     /*
      * isp_set_hflip / isp_set_vflip -- set ISP horizontal/vertical flip.
@@ -1136,15 +1183,15 @@ typedef struct rss_hal_ops {
      * set_max_dgain: max digital gain. T20-T31.
      * set_highlight_depress: highlight suppression [0..255]. T20-T31.
      */
-    int (*isp_set_sinter_strength)(void *ctx, uint8_t val);
-    int (*isp_set_temper_strength)(void *ctx, uint8_t val);
+    int (*isp_set_sinter_strength)(void *ctx, int val);
+    int (*isp_set_temper_strength)(void *ctx, int val);
     int (*isp_set_defog)(void *ctx, int enable);
-    int (*isp_set_dpc_strength)(void *ctx, uint8_t val);
-    int (*isp_set_drc_strength)(void *ctx, uint8_t val);
+    int (*isp_set_dpc_strength)(void *ctx, int val);
+    int (*isp_set_drc_strength)(void *ctx, int val);
     int (*isp_set_ae_comp)(void *ctx, int val);
     int (*isp_set_max_again)(void *ctx, uint32_t gain);
     int (*isp_set_max_dgain)(void *ctx, uint32_t gain);
-    int (*isp_set_highlight_depress)(void *ctx, uint8_t val);
+    int (*isp_set_highlight_depress)(void *ctx, int val);
 
 
     /* ================================================================
@@ -1348,7 +1395,7 @@ typedef struct rss_hal_ops {
      * Wraps IMP_OSD_ShowRgn().
      * show: 1 = visible, 0 = hidden.
      */
-    int (*osd_show_region)(void *ctx, int handle, int grp, int show);
+    int (*osd_show_region)(void *ctx, int handle, int grp, int show, int layer);
 
 
     /* ================================================================
@@ -1381,6 +1428,54 @@ typedef struct rss_hal_ops {
      * from the system config.
      */
     int (*ircut_set)(void *ctx, int state);
+
+
+    /* ================================================================
+     * ADDITIONAL VTABLE SECTIONS (see raptor_hal.h for full list)
+     *
+     * The vtable contains ~250+ function pointers total. The sections
+     * above cover the core APIs used by most daemons. The following
+     * categories are defined in raptor_hal.h but omitted here for
+     * brevity:
+     *
+     * - System info: sys_get_version, sys_get_cpu_info, sys_get_timestamp,
+     *   sys_rebase_timestamp, sys_read_reg32, sys_write_reg32,
+     *   sys_get_bind_by_dest
+     *
+     * - Framesource extended: fs_get_frame, fs_release_frame,
+     *   fs_snap_frame, fs_set_frame_depth, fs_set_pool, fs_set_delay,
+     *   fs_chn_stat_query, fs_enable_chn_undistort
+     *
+     * - Encoder extended: enc_set_rc_mode, enc_get_channel_attr,
+     *   enc_get_fps, enc_get_gop_attr, enc_set_gop_attr, enc_get_fd,
+     *   enc_set_qp, enc_set_qp_bounds, enc_set_qp_ip_delta,
+     *   enc_set_qp_pb_delta, enc_set_max_psnr, enc_set_stream_buf_size,
+     *   enc_flush_stream, enc_query
+     *
+     * - ISP extended (~100+ getters): ae/awb advanced, gamma, CCM, WDR,
+     *   AF, sensor register, auto zoom, mask, frame drop, scaler level
+     *
+     * - Multi-sensor ISP: _n suffixed variants of all ISP functions
+     *   taking a sensor_num parameter (T32/T40/T41)
+     *
+     * - Audio output (AO): ao_init, ao_deinit, ao_enable, ao_disable,
+     *   ao_send_frame, ao_set_vol, ao_set_gain (~15 ops)
+     *
+     * - Audio encode/decode pipeline: aenc_create, aenc_send_frame,
+     *   aenc_get_stream, adec_create, adec_send_stream (~20 ops)
+     *
+     * - DMIC: digital microphone subsystem (~18 ops)
+     *
+     * - IVS: motion/person detection pipeline — ivs_create_group,
+     *   ivs_create_channel, ivs_start, ivs_poll_result, ivs_get_result,
+     *   ivs_destroy; person detection and JZDL inference wrappers
+     *
+     * - ISP OSD: hardware ISP-level overlay — isp_osd_create_region,
+     *   isp_osd_set_region_attr, isp_osd_show_region (~6 ops)
+     *
+     * - Memory: mem_alloc, mem_free, mem_flush_cache, mem_phys_to_virt,
+     *   pool variants
+     * ================================================================ */
 
 } rss_hal_ops_t;
 ```
@@ -1474,6 +1569,21 @@ void rss_hal_destroy(rss_hal_ctx_t *ctx);
  * Returns a pointer to the ops struct. Shortcut for ctx->ops.
  */
 const rss_hal_ops_t *rss_hal_get_ops(rss_hal_ctx_t *ctx);
+
+/*
+ * rss_hal_init_single -- convenience inline for single-sensor init.
+ *
+ * Wraps the sensor config into a rss_multi_sensor_config_t and calls init().
+ */
+static inline int rss_hal_init_single(const rss_hal_ops_t *ops, void *ctx,
+                                      const rss_sensor_config_t *sensor)
+{
+    rss_multi_sensor_config_t m = {0};
+    m.sensor_count = 1;
+    m.sensors[0] = *sensor;
+    m.mipi_switch = -1;
+    return ops->init(ctx, &m);
+}
 ```
 
 ---
@@ -1482,28 +1592,32 @@ const rss_hal_ops_t *rss_hal_get_ops(rss_hal_ctx_t *ctx);
 
 ```c
 /*
- * HAL call macros -- syntactic sugar for invoking ops through context.
+ * RSS_HAL_CALL -- invoke a vtable function with NULL guard.
+ *
+ * Returns RSS_ERR_NOTSUP if the function pointer is NULL, allowing
+ * callers to invoke optional ops without checking availability.
  *
  * Usage:
- *   rss_hal_ctx_t *hal = rss_hal_create();
- *   RSS_HAL_CALL(hal, init, &sensor_cfg);
- *   RSS_HAL_CALL(hal, fs_create_channel, 0, &fs_cfg);
+ *   const rss_hal_ops_t *ops = rss_hal_get_ops(ctx);
+ *   RSS_HAL_CALL(ops, init, ctx, &multi_cfg);
+ *   RSS_HAL_CALL(ops, fs_create_channel, ctx, 0, &fs_cfg);
  */
-#define RSS_HAL_CALL(ctx, func, ...) \
-    ((ctx)->ops->func((ctx), ##__VA_ARGS__))
+#define RSS_HAL_CALL(ops, fn, ctx, ...) \
+    ((ops)->fn ? (ops)->fn((ctx), ##__VA_ARGS__) : RSS_ERR_NOTSUP)
 
 /*
  * Error codes returned by HAL functions.
  * These map to standard errno values.
  */
 #define RSS_OK          0
-#define RSS_EINVAL      (-EINVAL)       /* invalid argument */
-#define RSS_ENOTSUP     (-ENOTSUP)      /* feature not supported on this SoC */
-#define RSS_ENOMEM      (-ENOMEM)       /* memory allocation failed */
-#define RSS_ETIMEDOUT   (-ETIMEDOUT)    /* operation timed out */
-#define RSS_EIO         (-EIO)          /* SDK call failed */
-#define RSS_EBUSY       (-EBUSY)        /* resource in use */
-#define RSS_ENOENT      (-ENOENT)       /* resource not found */
+#define RSS_ERR         (-1)            /* generic error */
+#define RSS_ERR_NOTSUP  (-ENOTSUP)      /* feature not supported on this SoC */
+#define RSS_ERR_TIMEOUT (-ETIMEDOUT)    /* operation timed out */
+#define RSS_ERR_INVAL   (-EINVAL)       /* invalid argument */
+#define RSS_ERR_NOMEM   (-ENOMEM)       /* memory allocation failed */
+#define RSS_ERR_IO      (-EIO)          /* SDK call failed */
+#define RSS_ERR_BUSY    (-EBUSY)        /* resource in use */
+#define RSS_ERR_NOENT   (-ENOENT)       /* resource not found */
 
 #ifdef __cplusplus
 }
@@ -1514,25 +1628,32 @@ const rss_hal_ops_t *rss_hal_get_ops(rss_hal_ctx_t *ctx);
 
 ---
 
-## 8. Per-SoC Implementation File Structure
+## 8. Implementation File Structure
 
-Each SoC family provides a source file implementing all ops:
+The HAL is organized per-module, not per-SoC. Each source file handles
+cross-SoC differences internally via `#ifdef PLATFORM_*` guards:
 
 ```
-hal/
-    raptor_hal.h                 <-- this file (master header)
-    hal_common.c                 <-- rss_hal_create/destroy, shared utilities
-    hal_gen1.c                   <-- T20, T21, T30 implementation
-    hal_t23.c                    <-- T23 implementation (dual-sensor via _Sec)
-    hal_t31.c                    <-- T31 implementation
-    hal_t32.c                    <-- T32 implementation (hybrid SDK)
-    hal_t40.c                    <-- T40 implementation
-    hal_t41.c                    <-- T41 implementation
+raptor-hal/
+    include/raptor_hal.h         <-- single public header
+    src/
+        hal_common.c             <-- rss_hal_create/destroy, multi-sensor dispatch
+        hal_encoder.c            <-- encoder create/destroy/poll/get_frame
+        hal_framesource.c        <-- framesource create/enable/disable
+        hal_isp.c                <-- ISP tuning (per-SoC signature dispatch)
+        hal_audio.c              <-- audio input/output pipeline
+        hal_osd.c                <-- OSD region lifecycle
+        hal_gpio.c               <-- GPIO and IR-cut control
+        hal_ivs.c                <-- IVS motion/person detection
+        hal_dmic.c               <-- digital microphone subsystem
+        hal_caps.c               <-- per-SoC capability tables
+        hal_memory.c             <-- DMA memory management
 ```
 
-The build system compiles exactly ONE `hal_*.c` file based on the
-`RSS_SOC` define. Each file populates a `const rss_hal_ops_t` struct
-and registers it via `rss_hal_create()`.
+All source files are compiled for every platform; per-SoC differences
+are handled by `#ifdef PLATFORM_T31` / `PLATFORM_T40` / etc. guards
+within each file. The caps struct uses `uses_new_sdk` and `uses_impvi`
+bools (not preprocessor macros) for runtime dispatch.
 
 ---
 

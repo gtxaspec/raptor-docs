@@ -37,11 +37,12 @@ raptor/                  # main repo: all daemons and tools
 ├── rad/                 # audio daemon (HAL, encode, ring publish)
 │   ├── Makefile
 │   └── rad_main.c
-├── rhd/                 # HTTP daemon (snap.jpg, MJPEG)
+├── rhd/                 # HTTP daemon (snap.jpg, MJPEG, audio)
 │   ├── Makefile
 │   ├── rhd.h
 │   ├── rhd_main.c
 │   ├── rhd_http.c
+│   ├── rhd_audio.c      # HTTP audio streaming
 │   └── index.html
 ├── rod/                 # OSD daemon (libschrift rendering)
 │   ├── Makefile
@@ -120,12 +121,21 @@ raptor-ipc/              # IPC library (separate repo)
 
 raptor-common/           # common utilities (separate repo)
 ├── Makefile
-├── include/rss_common.h
+├── include/
+│   ├── rss_common.h
+│   ├── rss_http.h       # HTTP basic auth, base64
+│   ├── rss_net.h        # network utility helpers
+│   ├── rss_tls.h        # shared TLS server for HTTPS
+│   └── cJSON.h          # bundled cJSON parser
 └── src/
     ├── rss_log.c        # logging (syslog + stderr)
-    ├── rss_config.c     # INI config parser (no JSON dependency)
+    ├── rss_config.c     # INI config parser
     ├── rss_daemon.c     # daemonize, PID files, signals, daemon init
-    └── rss_util.c       # timestamps, string utils, file I/O, JSON helpers
+    ├── rss_util.c       # timestamps, string utils, file I/O, JSON helpers
+    ├── rss_ctrl_cmds.c  # common ctrl commands (config-get, config-save)
+    ├── rss_http.c       # HTTP basic auth, base64 decode
+    ├── rss_tls.c        # shared TLS server initialization
+    └── cJSON.c          # bundled cJSON library (JSON response building)
 
 compy/                   # RTSP library (separate repo, CMake)
 ├── CMakeLists.txt
@@ -359,9 +369,11 @@ cd asan-out/
 | ingenic-musl | all daemons | musl shim for vendor SDK compat | Yes (musl toolchain) |
 | pthread, rt | all daemons | POSIX threads, SHM, clock | Yes (system) |
 
-**Note:** No JSON library dependency. The config parser (`rss_config.c`)
-reads INI-format files. The JSON helpers (`rss_json_get_str/int`) are
-lightweight string matchers for control socket IPC — no external parser.
+**Note:** cJSON is bundled in raptor-common (not an external dependency).
+The config parser (`rss_config.c`) reads INI-format files. cJSON is used
+for building all JSON control socket responses. The lightweight JSON
+readers (`rss_json_get_str/int`) are still used for parsing incoming
+control socket commands.
 
 ### 5.1 Minimal Build
 
@@ -376,7 +388,7 @@ Binary sizes (stripped): rvd ~195KB, rsd ~322KB, raptorctl ~73KB
 ### 5.2 Full Build
 
 ```
-Daemons: RVD + RAD + ROD + RSD + RHD + RMR + RIC + RMD
+Daemons: RVD + RAD + ROD + RSD + RHD + RMR + RIC + RMD + RWD + RWC
 Tools: raptorctl, ringdump, rac
 Dependencies: all of the above
 Approximate total (stripped): ~1MB
@@ -392,9 +404,18 @@ All daemons share the raptor-common library which provides:
   (`-c config -f foreground -d debug -h help`), logging, config load,
   daemonize with PID duplicate check, signal handlers. Eliminates ~30
   lines of boilerplate per daemon.
+- **cJSON** — bundled cJSON library for building all JSON control socket
+  responses (`cJSON_CreateObject`, `cJSON_AddStringToObject`,
+  `cJSON_PrintUnformatted`).
 - **`rss_json_get_str()` / `rss_json_get_int()`** — lightweight JSON key
-  lookup for control socket commands. Key length validated, int range
-  checked against INT_MIN/INT_MAX.
+  lookup for parsing incoming control socket commands. Key length
+  validated, int range checked against INT_MIN/INT_MAX.
+- **`rss_ctrl_resp_ok()` / `rss_ctrl_resp_error()` / `rss_ctrl_resp_json()`**
+  — helpers for building control socket JSON responses via cJSON.
+- **`rss_http_basic_auth_check()`** — HTTP Basic auth validation with
+  constant-time credential comparison.
+- **`rss_tls_init()`** — shared TLS server initialization for HTTPS
+  endpoints (used by RHD and RWD).
 - **`rss_secure_compare()`** — constant-time string comparison for
   credential checks (prevents timing side-channel attacks).
 - **`rss_config_*()`** — INI config parser (load, get, set, save).

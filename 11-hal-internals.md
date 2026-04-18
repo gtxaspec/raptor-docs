@@ -87,62 +87,35 @@ Per-SoC macro matrix:
 
 ## 2. File Organization
 
-### Option A: Per-SoC files
+The HAL uses a per-module layout where every source file is compiled
+for all platforms. Cross-SoC differences are handled by `#ifdef
+PLATFORM_*` guards within each file:
 
 ```
-hal_t20.c  hal_t21.c  hal_t23.c  hal_t30.c
-hal_t31.c  hal_t32.c  hal_t40.c  hal_t41.c
+raptor-hal/src/
+    hal_common.c       # rss_hal_create/destroy, multi-sensor dispatch, shared utils
+    hal_encoder.c      # encoder create/destroy/poll/get_frame, stream pack access
+    hal_framesource.c  # framesource create/enable/disable, rotation, crop
+    hal_isp.c          # ISP tuning (per-SoC signature dispatch via #ifdef)
+    hal_audio.c        # audio input/output pipeline, AGC, NS, AEC
+    hal_osd.c          # OSD region lifecycle, enum translation per generation
+    hal_gpio.c         # GPIO and IR-cut control
+    hal_ivs.c          # IVS motion/person detection pipeline
+    hal_dmic.c         # digital microphone subsystem
+    hal_caps.c         # per-SoC capability tables (static const structs)
+    hal_memory.c       # DMA memory management (alloc, free, cache flush)
 ```
 
-Each file implements the full HAL for one SoC. Clean separation, but 80%+ of the code is identical across files (audio init, OSD workflow, frame polling). Any bug fix or feature addition must be replicated 8 times.
-
-### Option B: Per-SDK-generation files (Recommended)
-
-```
-hal_common.c          # Shared logic: error handling, caps query, audio init,
-                      # OSD group management, frame polling loop
-hal_encoder_old.c     # Old SDK encoder: channel create, stream pack access
-hal_encoder_new.c     # New SDK encoder: channel create, stream pack access, ring-buffer
-hal_isp_gen1.c        # T20/T21/T30: scalar ISP tuning, separate H/V flip
-hal_isp_gen2.c        # T23/T31: scalar ISP tuning, combined HVFLIP, _Sec suffix
-hal_isp_gen3.c        # T32/T40/T41: IMPVI_NUM + pointer ISP tuning
-hal_osd.c             # OSD region management, enum translation per generation
-hal_sensor.c          # IMPSensorInfo construction, AddSensor dispatch
-hal_caps.c            # Per-SoC capability structs
-```
-
-Only one encoder file and one ISP file are compiled per target (selected by the build system based on `PLATFORM_*`). `hal_common.c` is always compiled. This gives clean separation without duplication: shared code lives in `hal_common.c`, and generation-specific code lives in the appropriate file.
-
-### Option C: Single file with `#ifdef` blocks
-
-```
-hal.c                 # Everything in one file, massive #if/#elif chains
-```
-
-Most compact. This is what prudynt-t uses (`imp_hal.cpp`). It works for a 900-line file but becomes unmaintainable at HAL scale (2000+ lines). Every function has nested `#ifdef` blocks that obscure the logic. Difficult to review or test a single generation in isolation.
-
-### Recommendation
-
-**Use Option B.** The generation split is natural: the Old/New encoder boundary is the deepest API break, and the ISP three-generation split is the widest. Per-generation files keep each file under 500 lines and allow reviewers to focus on one SDK variant at a time. The build system selects the correct files:
+All 11 files compile for every target. The `Makefile` is trivial:
 
 ```makefile
-# Build system file selection (example)
-ifeq ($(HAL_OLD_SDK),1)
-  HAL_SRCS += hal_encoder_old.c
-else
-  HAL_SRCS += hal_encoder_new.c
-endif
-
-ifeq ($(PLATFORM),T20)$(PLATFORM),T21)$(PLATFORM),T30))
-  HAL_SRCS += hal_isp_gen1.c
-else ifeq ($(PLATFORM),T23)$(PLATFORM),T31))
-  HAL_SRCS += hal_isp_gen2.c
-else
-  HAL_SRCS += hal_isp_gen3.c
-endif
-
-HAL_SRCS += hal_common.c hal_osd.c hal_sensor.c hal_caps.c
+HAL_SRCS = $(wildcard src/*.c)
 ```
+
+Per-SoC divergences live inside each file as `#ifdef PLATFORM_T31` /
+`PLATFORM_T40` blocks. Runtime dispatch uses the `uses_new_sdk` and
+`uses_impvi` bools in `rss_hal_caps_t` rather than compile-time
+generation macros.
 
 ---
 

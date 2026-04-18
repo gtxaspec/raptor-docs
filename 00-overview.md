@@ -123,7 +123,7 @@ Thingino uses buildroot. The SoC is selected at build time:
 int main(void) {
     /* Create HAL context */
     rss_hal_ctx_t *ctx = rss_hal_create();
-    const rss_hal_ops_t *ops = rss_hal_get_ops();
+    const rss_hal_ops_t *ops = rss_hal_get_ops(ctx);
 
     /* Configure sensor */
     rss_sensor_config_t sensor = {
@@ -136,7 +136,7 @@ int main(void) {
     };
 
     /* Initialize: ISP open → add sensor → enable → system init */
-    ops->init(ctx, &sensor);
+    rss_hal_init_single(ops, ctx, &sensor);
 
     /* Query capabilities */
     const rss_hal_caps_t *caps = ops->get_caps(ctx);

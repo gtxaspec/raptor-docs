@@ -271,18 +271,16 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   Per-client RTP timestamp offsets ensure each client sees timestamps
   starting from zero on connect (set on first keyframe delivery).
 - **Send architecture**: Per-client send threads decouple the ring reader
-  from network I/O. The ring reader reads each frame into a single shared
-  `frame_buf`, then hands direct pointers (zero-copy) to each client's
-  send queue. An atomic refcount barrier on the ring context prevents the
-  reader from overwriting `frame_buf` until all send threads are done.
-  The last send thread to finish signals a condvar for zero-latency
-  reader wakeup. Video is fully zero-copy (one `ring_read` from SHM,
-  no per-client memcpy). Audio uses small malloc copies (<4KB) because
-  the burst read loop requires independent buffers. This design eliminates
-  TLS-induced pixelation: software mbedTLS on MIPS can consume 30-50% CPU,
-  and blocking TLS writes in the reader caused frame skips and IDR storms.
-  With the sendq, TLS work is isolated per-client and the reader never
-  blocks on I/O.
+  from network I/O. The ring reader reads each frame into `frame_buf`,
+  then pushes a malloc copy into each client's send queue (copy-on-push).
+  Each client's send thread independently drains its queue through
+  blocking TLS/TCP writes. This design eliminates TLS-induced pixelation:
+  software mbedTLS on MIPS can consume 30-50% CPU, and blocking TLS
+  writes in the reader caused frame skips and IDR storms. With the sendq,
+  TLS work is isolated per-client and the reader never blocks on I/O.
+  An earlier zero-copy barrier design (atomic refcount on `frame_buf`,
+  condvar signal on last release) was replaced by copy-on-push because
+  the barrier capped throughput at 1/send_latency on single-core SoCs.
 - **Why separate**: RTSP client management (socket I/O, RTP packetization,
   RTCP) is complex and has its own failure modes (slow clients, network
   errors). Isolating it means a misbehaving RTSP client cannot affect
@@ -305,7 +303,13 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   - `/snap.jpg` or `/snap.jpg?stream=0` — main stream snapshot (1920x1080)
   - `/snap.jpg?stream=1` — sub stream snapshot (640x360)
   - `/mjpeg` — MJPEG stream (multipart/x-mixed-replace from jpeg0 ring)
+  - `/audio` — HTTP audio streaming
   - `/` — simple HTML index page with links and embedded MJPEG preview
+- **HTTPS**: Supports `[http] https = true` with `cert`/`key` config
+  options. Uses `rss_tls_init()` from raptor-common. Falls back to HTTP
+  on TLS init failure.
+- **Authentication**: HTTP Basic auth via `[http] username` and
+  `[http] password` config options (defaults: `admin`/`secret`).
 - **Network**: Dual-stack IPv6 (AF_INET6 with IPV6_V6ONLY=0), port 8080.
   Client sockets are set non-blocking (`O_NONBLOCK` via `fcntl`).
   MJPEG frame writes use `poll()` to retry on `EAGAIN` (up to 5 seconds)
@@ -656,25 +660,30 @@ single-producer multi-consumer, designed for zero-copy frame passing.
 #define RSS_RING_MAX_SLOTS    64
 #define RSS_RING_SHM_PREFIX   "/rss_ring_"   /* shm_open name prefix */
 
-typedef struct {
+typedef struct __attribute__((aligned(64))) {
     /* Producer-written, consumer-read */
-    _Atomic uint64_t  write_seq;        /* monotonic sequence, wraps at UINT64_MAX */
+    _Atomic uint64_t  write_seq;        /* monotonic sequence (release/acquire) */
+    _Atomic uint32_t  futex_seq;        /* low 32 bits of write_seq for futex wake/wait */
     uint32_t          slot_count;       /* number of slots (power of 2) */
     uint32_t          data_size;        /* total data region size in bytes */
 
     /* Data region allocator (producer only) */
-    _Atomic uint32_t  data_head;        /* next write offset in data region */
+    _Atomic uint32_t  data_head;        /* next write offset in data region (relaxed) */
 
     /* Stream metadata (set once at init via rss_ring_set_stream_info) */
     uint32_t          stream_id;        /* 0=main, 1=sub, 2=jpeg, 0x10=audio */
     uint32_t          codec;            /* rss_codec_t value */
-    uint32_t          width;            /* video width (0 for audio) */
-    uint32_t          height;           /* video height (0 for audio) */
-    uint32_t          fps_num;
-    uint32_t          fps_den;
+    uint32_t          width, height;
+    uint32_t          fps_num, fps_den;
     uint8_t           profile;          /* H.264 profile_idc (66=Base,77=Main,100=High) */
     uint8_t           level;            /* H.264 level_idc (30,31,40,51...) */
     uint16_t          _reserved;
+
+    /* Magic + version for consumer validation.
+     * Magic is written last with memory_order_release as a ready flag.
+     * Consumer open uses memory_order_acquire. Closes TOCTOU window. */
+    _Atomic uint32_t  magic;            /* RSS_RING_MAGIC */
+    uint32_t          version;          /* RSS_RING_VERSION */
 
     /* Incarnation counter -- incremented on each ring creation.
      * Consumers check this on every read to detect producer restart. */
@@ -684,12 +693,6 @@ typedef struct {
      * EOVERFLOW to get a keyframe fast. Producer checks and clears
      * in its encode loop. Avoids control socket round-trip. */
     _Atomic uint32_t  idr_request;
-
-    /* Magic + version for consumer validation.
-     * Magic is written last with memory_order_release as a ready flag.
-     * Consumer open uses memory_order_acquire. Closes TOCTOU window. */
-    uint32_t          magic;            /* RSS_RING_MAGIC */
-    uint32_t          version;          /* RSS_RING_VERSION */
 
     /* Demand signaling for on-demand encoding (JPEG idle feature).
      * reader_count tracks active consumers via acquire/release (NOT
@@ -932,10 +935,12 @@ raptorctl and daemons, and between daemons when needed.
 /var/run/rss/rod.sock    -- ROD control socket
 /var/run/rss/rad.sock    -- RAD control socket
 /var/run/rss/rsd.sock    -- RSD control socket
+/var/run/rss/rhd.sock    -- RHD control socket
 /var/run/rss/rmr.sock    -- RMR control socket
-/var/run/rss/rsp.sock    -- RSP control socket
 /var/run/rss/ric.sock    -- RIC control socket
-/var/run/rss/rmc.sock    -- RMC control socket
+/var/run/rss/rmd.sock    -- RMD control socket
+/var/run/rss/rwd.sock    -- RWD control socket
+/var/run/rss/rwc.sock    -- RWC control socket
 ```
 
 #### Wire Protocol
@@ -1327,8 +1332,9 @@ all daemons that map the same ring).
 - **Single libimp.so load**: RVD and RAD both link against the vendor
   library, but as separate processes they each get a copy. If memory is
   critical, RAD audio init could be folded into RVD (sacrificing isolation).
-- **Consumer-side zero-copy**: RSD reads directly from SHM ring and
-  passes pointers to the RTP packetizer. No intermediate buffer copies.
+- **Consumer-side copy-on-push**: RSD reads from SHM ring into a shared
+  `frame_buf`, then pushes malloc copies to per-client send queues. The
+  copy overhead is negligible compared to TLS encryption.
 - **Static linking**: All daemons can be statically linked to avoid
   dynamic linker overhead and reduce per-process memory slightly.
 
@@ -1870,7 +1876,7 @@ fMP4 recording verified):
 | T40 | IMPVI SDK (XB2) | imx307 | 128MB | Confirmed build (AWB via SetAwbAttr) |
 | T41 | IMPVI SDK (XB2) | gc4023 | 128MB | Confirmed working (2560x1440, dual-stream) |
 
-T20 uses the gen1 HAL (`hal_gen1.c`). Notably it has no H265 encoder
+T20 uses the old SDK HAL path. Notably it has no H265 encoder
 and no dynamic bitrate support; RVD falls back to H264 and logs a
 warning if H265 is requested in config. All consumer daemons are
 codec-agnostic and work without modification.

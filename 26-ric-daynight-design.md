@@ -30,6 +30,10 @@ sensor-independent — it's the ISP's target luminance measurement.
 ```
 If ae_luma < night_luma (default 20) for hysteresis_sec (default 5)
 consecutive polls → switch to NIGHT
+
+Additionally: if total_gain > night_gain (default 80000), force NIGHT
+immediately regardless of ae_luma. This handles sensors where high gain
+pushes luma above the threshold despite near-darkness.
 ```
 
 ### Night → Day (gain-ratio based, auto-calibrating)
@@ -119,6 +123,7 @@ enabled = true
 mode = auto                   # auto, day, or night
 trigger = luma                # luma (sensor-independent) or gain (legacy)
 night_luma = 20               # ae_luma below this → night (0-255)
+night_gain = 80000            # force night when total_gain exceeds this (regardless of luma)
 day_gain_pct = 25             # night→day: gain below this % of baseline
 night_threshold = 40000       # (trigger=gain only) gain → night
 day_threshold = 25000         # (trigger=gain only) gain → day
