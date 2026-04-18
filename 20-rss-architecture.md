@@ -598,49 +598,131 @@ These daemons control hardware peripherals and do not process frame data.
 
 - **Role**: Command-line interface for daemon management and diagnostics.
 - **Communication**: Connects to each daemon's Unix control socket.
-- **Commands**:
-  - `raptorctl status` -- show running daemons (PID or stopped)
-  - `raptorctl get <section> <key>` -- query live value from daemon
-  - `raptorctl set <section> <key> <value>` -- write value to config
-  - `raptorctl config save` -- persist running config to disk
-  - `raptorctl <daemon> status` -- show daemon-specific details
-  - `raptorctl <daemon> config` -- show daemon's running config
-  - `raptorctl <daemon> clients` -- list connected clients (rsd)
-  - `raptorctl rvd request-idr [channel]` -- request IDR frame
-  - `raptorctl rvd set-bitrate <ch> <bps>` -- change encoder bitrate
-  - `raptorctl rvd set-gop <ch> <length>` -- change GOP length
-  - `raptorctl rvd set-fps <ch> <fps>` -- change frame rate
-  - `raptorctl rvd set-qp-bounds <ch> <min> <max>` -- change QP range
-  - `raptorctl rvd stream-restart <ch>` -- hot restart a stream (teardown + rebuild)
-  - `raptorctl rvd set-codec <ch> <h264|h265>` -- runtime codec switch
-  - `raptorctl rvd set-resolution <ch> <w> <h>` -- runtime resolution change
-  - `raptorctl rvd osd-restart [pool_kb]` -- restart all OSD (for font size changes)
-  - `raptorctl rod privacy [on|off] [channel]` -- toggle privacy mode (all or per-stream)
-  - `raptorctl rod set-font-size <10-72>` -- global font size (triggers OSD restart)
-  - `raptorctl rod set-time-font-size <10-72>` -- per-element font size
-  - `raptorctl rod set-uptime-font-size <10-72>` -- per-element font size
-  - `raptorctl rod set-text-font-size <10-72>` -- per-element font size
-  - `raptorctl rod enable-time <0|1> [stream]` -- show/hide timestamp
-  - `raptorctl rod enable-uptime <0|1> [stream]` -- show/hide uptime
-  - `raptorctl rod enable-text <0|1> [stream]` -- show/hide camera text
-  - `raptorctl rod enable-logo <0|1> [stream]` -- show/hide logo
-  - `raptorctl rod set-position <elem> <pos> [stream]` -- move element
-  - `raptorctl rad set-codec <codec>` -- runtime audio codec switch
-  - `raptorctl rad set-volume <val>` -- change audio input volume
-  - `raptorctl rad set-gain <val>` -- change audio input gain
-  - `raptorctl rad set-ns <0|1> [level]` -- noise suppression
-  - `raptorctl rad set-hpf <0|1>` -- high-pass filter
-  - `raptorctl rad set-agc <0|1> [target] [compression]` -- AGC
-  - `raptorctl rod set-text <text>` -- change OSD text string
-  - `raptorctl ric mode <auto|day|night>` -- set day/night mode
-  - `raptorctl rwd share` -- show WebTorrent share URL
-  - `raptorctl rwd share-rotate` -- generate new share key
-  - `raptorctl memory` -- show per-daemon memory usage (private/shared/RSS).
-    Private = memory unique to that daemon. Shared = SHM rings and shared
-    libraries mapped by multiple daemons. RSS = sum (overcounts shared pages).
-    The "Actual memory" total counts SHM once.
-  - `raptorctl test-motion [sec]` -- trigger a motion clip (default 10s,
-    bypasses RMD cooldown). Sends start/stop directly to RMR.
+  Config commands auto-route to the correct daemon by section name
+  (e.g., `config get rtsp port` routes to RSD).
+
+**Global commands:**
+
+| Command | Description |
+|---------|-------------|
+| `status` | Show running daemons (PID or stopped) |
+| `memory` | Per-daemon memory usage: private, shared, RSS, thread stacks (raptor vs SDK), VSIZE. SHM rings and OSD buffers listed separately. "Actual memory" = private + SHM (counts shared once) |
+| `cpu` | Per-daemon CPU usage (1s sample) with thread count |
+| `config get <section> <key>` | Read live config value (routed to owning daemon) |
+| `config get <section>` | Show all keys in section |
+| `config set <section> <key> <value>` | Set config value |
+| `config save` | Persist running config to disk |
+| `<daemon> status` | Show daemon-specific details |
+| `<daemon> config` | Show daemon's running config |
+| `test-motion [sec]` | Trigger clip recording (default 10s, bypasses RMD) |
+
+**RVD encoder commands** (42 commands — set/get for all HAL encoder ops):
+
+| Command | Description |
+|---------|-------------|
+| `set-bitrate <ch> <bps>` | Change bitrate |
+| `set-gop <ch> <len>` | Change GOP length |
+| `set-fps <ch> <fps>` | Change frame rate |
+| `set-qp-bounds <ch> <min> <max>` | Change QP range |
+| `set-qp <ch> <qp>` | Set fixed QP (all frames) |
+| `set-rc-mode <ch> <mode> [bps]` | Change rate control mode |
+| `set-qp-ip-delta <ch> <delta>` | I/P frame QP delta |
+| `set-qp-bounds-per-frame <ch> ...` | Per-frame QP (iMin iMax pMin pMax) |
+| `set-gop-mode <ch> <0\|1\|2>` | GOP mode (default/pyramid/smartP) |
+| `set-rc-options <ch> <bitmask>` | RC options bitmask |
+| `set-max-same-scene <ch> <count>` | Max same-scene count |
+| `set-max-pic-size <ch> <iK> <pK>` | Max I/P frame size (kbits) |
+| `set-color2grey <ch> <0\|1>` | Color to greyscale |
+| `set-mbrc <ch> <0\|1>` | Macroblock rate control |
+| `set-entropy-mode <ch> <0\|1>` | CAVLC/CABAC |
+| `set-resize-mode <ch> <0\|1>` | Resize mode |
+| `set-stream-buf-size <ch> <bytes>` | Stream buffer size |
+| `set-qpg-mode <ch> <mode>` | QPG mode |
+| `set-h264-trans <ch> <offset>` | H.264 chroma QP offset |
+| `set-h265-trans <ch> <cr> <cb>` | H.265 chroma QP offsets |
+| `set-roi <ch> <idx> ...` | ROI region (en x y w h qp) |
+| `set-super-frame <ch> <mode> ...` | Super frame (mode iThr pThr) |
+| `set-pskip <ch> <en> <maxf>` | P-skip config |
+| `set-srd <ch> <en> <level>` | Static refresh detection |
+| `set-enc-denoise <ch> ...` | Encoder denoise (en type iQP pQP) |
+| `set-gdr <ch> <en> <cycle>` | Gradual decoder refresh |
+| `set-enc-crop <ch> <en> <x y w h>` | Encoder crop |
+| `set-jpeg-qp <ch> <qp>` | JPEG QP |
+| `set-codec <ch> <h264\|h265>` | Change codec (requires restart) |
+| `set-resolution <ch> <w> <h>` | Change resolution (requires restart) |
+| `stream-restart <ch>` | Restart stream pipeline |
+| `request-idr [ch]` | Request keyframe |
+| `request-pskip <ch>` | Request P-skip |
+| `request-gdr <ch> <frames>` | Request GDR |
+| `get-*` variants | Getter for each setter above |
+| `get-enc-caps` | Show encoder capabilities |
+
+**RVD ISP commands:**
+
+| Command | Description |
+|---------|-------------|
+| `set-brightness <val>` | ISP brightness (0-255) |
+| `set-contrast <val>` | ISP contrast (0-255) |
+| `set-saturation <val>` | ISP saturation (0-255) |
+| `set-sharpness <val>` | ISP sharpness (0-255) |
+| `set-hue <val>` | ISP hue (0-255) |
+| `set-sinter <val>` | Spatial NR (0-255) |
+| `set-temper <val>` | Temporal NR (0-255) |
+| `set-hflip <0\|1>` | Horizontal flip |
+| `set-vflip <0\|1>` | Vertical flip |
+| `set-antiflicker <0\|1\|2>` | Off/50Hz/60Hz |
+| `set-ae-comp <val>` | AE compensation |
+| `set-max-again <val>` | Max analog gain |
+| `set-max-dgain <val>` | Max digital gain |
+| `set-defog <0\|1>` | Defog enable |
+| `set-wb <mode> [r] [b]` | White balance (auto/manual/daylight/etc) |
+| `get-wb` / `get-isp` / `get-exposure` | Query ISP state |
+
+**RAD commands:**
+
+| Command | Description |
+|---------|-------------|
+| `set-codec <codec>` | Change audio codec (restart) |
+| `set-volume <val>` | Input volume |
+| `set-gain <val>` | Input gain |
+| `set-alc-gain <0-7>` | ALC gain (T21/T31 only) |
+| `set-ns <0\|1> [0-3]` | Noise suppression level |
+| `set-hpf <0\|1>` | High-pass filter |
+| `set-agc <0\|1> [target] [comp]` | Automatic gain control |
+| `ao-set-volume <val>` | Speaker volume |
+| `ao-set-gain <val>` | Speaker gain |
+
+**ROD commands:**
+
+| Command | Description |
+|---------|-------------|
+| `privacy [on\|off] [ch]` | Toggle privacy mode |
+| `set-text <text>` | Change OSD text |
+| `set-font-color <0xAARRGGBB>` | Text color |
+| `set-stroke-color <0xAARRGGBB>` | Stroke color |
+| `set-stroke-size <0-5>` | Stroke width |
+| `enable-time <0\|1>` | Show/hide timestamp |
+| `enable-uptime <0\|1>` | Show/hide uptime |
+| `enable-text <0\|1>` | Show/hide camera text |
+| `enable-logo <0\|1>` | Show/hide logo |
+| `set-position <elem> <pos>` | Move element |
+| `set-font-size <10-72>` | Font size (all elements) |
+| `set-time-font-size <10-72>` | Per-element font size |
+| `set-uptime-font-size` / `set-text-font-size` | Per-element font size |
+
+**Other daemon commands:**
+
+| Command | Description |
+|---------|-------------|
+| `rsd clients` | List RTSP clients |
+| `rhd clients` | List HTTP clients |
+| `rwd clients` | List WebRTC clients |
+| `rwd share` | Show WebTorrent share URL |
+| `rwd share-rotate` | Generate new share key |
+| `ric mode <auto\|day\|night>` | Set day/night mode (GPIO + ISP) |
+| `ric isp-mode <day\|night>` | ISP running mode only (no GPIO) |
+| `rmd sensitivity <0-4>` | Set motion sensitivity |
+| `rmd skip-frames <N>` | Set IVS skip frame count |
 
 #### rac -- Raptor Audio Client
 
