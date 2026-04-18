@@ -91,7 +91,7 @@ Notes:
 | Function | T20 | T21 | T23 | T30 | T31 | T32 | T40 | T41 |
 |----------|-----|-----|-----|-----|-----|-----|-----|-----|
 | SetChnBitRate | - | - | - | - | Y | Y | Y | Y |
-| SetChnGopLength | - | - | - | - | Y | Y | Y | Y |
+| SetChnGopLength | - | - | - | - | Y | - | Y | Y |
 | SetChnQp | - | - | - | - | Y | - | - | - |
 | SetChnQpBounds | - | - | - | - | Y | Y | Y | Y |
 | SetChnQpBoundsPerFrame | - | - | - | - | - | Y | - | Y |
@@ -218,6 +218,7 @@ These functions exist ONLY on T32:
 | `RequestPskip` | Request P-skip |
 | `SetJpegQp` / `GetJpegQp` | JPEG QP control |
 | `SetChnCrop` / `GetChnCrop` | Dynamic encoder crop (also T23) |
+| `SetGOPSize` / `GetGOPSize` | GOP size config (T32 equivalent of `SetChnGopLength`) |
 
 ### 1.13 T41 Unique
 

@@ -226,6 +226,11 @@ On T20/T21/T30, sinter and temper denoising have individual attribute structs (`
 | SetAntiFogAttr | Y | Y | - | Y | - | - | - | - |
 | SetHiLightDepress | Y | Y | Y | Y | Y | - | - | - |
 | GetHiLightDepress | - | Y | Y | - | Y | - | - | - |
+
+Note: `SetHiLightDepress` is absent on T32/T40/T41. T40 replaces it
+with `SetHLDCAttr`/`GetHLDCAttr` (see Section 1.23). T32 and T41 have
+no highlight depress function in their headers.
+
 | SetBacklightComp | - | - | Y | - | Y | - | - | - |
 | GetBacklightComp | - | - | Y | - | Y | - | - | - |
 
