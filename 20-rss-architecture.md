@@ -481,6 +481,21 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Why separate**: V4L2 clients may misbehave or consume frames slowly.
   The bridge isolates them from the encoding pipeline.
 
+#### RFS -- File Source *(planned, not yet implemented)*
+
+- **Role**: Replace RVD+RAD on platforms without ISP/encoder hardware
+  (A1, x86 testing, development). Reads Annex B H.264/H.265 + raw audio
+  from files and publishes to ring buffers, allowing all consumer daemons
+  (RSD, RHD, RWD, RMR) to work unmodified against file-backed streams.
+- **Codec detection**: Auto-detect codec and resolution from SPS/PPS
+  NAL units in the file. FPS from config, configurable loop.
+- **Config**: `[filesource]` section — `video_file`, `audio_file`,
+  `fps`, `loop`.
+- **Dependencies**: librss_ipc, librss_common. No HAL dependency.
+- **Why separate**: RFS is a testing/development tool and an alternative
+  producer for non-camera platforms. Keeping it separate from RVD avoids
+  polluting the production video daemon with file I/O paths.
+
 ### 1.3 Control Daemons
 
 These daemons control hardware peripherals and do not process frame data.
