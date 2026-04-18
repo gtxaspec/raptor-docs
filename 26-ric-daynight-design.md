@@ -75,6 +75,7 @@ baseline is sampled on the last cooldown tick.
 
 ```
          ae_luma < 20 (5s)
+         OR gain > night_gain
   [DAY] ─────────────────────→ [NIGHT]
     ↑                              │
     │   gain < 25% baseline (5s)   │

@@ -14,6 +14,7 @@ Raptor is split across five git repositories, expected as siblings:
 raptor/                  # main repo: all daemons and tools
 ├── Makefile             # top-level build (orchestrates sub-makes)
 ├── build.sh             # convenience wrapper: ./build.sh t31 <br_output>
+├── build-standalone.sh  # standalone build (downloads toolchain + all deps)
 ├── build-asan.sh        # x86 ASAN build (mock HAL, native gcc)
 ├── config/
 │   └── raptor.conf      # default configuration file
@@ -382,7 +383,7 @@ For a streaming-only camera (no recording, no OSD, no audio):
 ```
 Daemons: RVD + RSD
 Dependencies: ingenic-lib, compy, pthread, rt
-Binary sizes (stripped): rvd ~195KB, rsd ~322KB, raptorctl ~73KB
+Binary sizes (stripped, T31): rvd ~142KB, rsd ~68KB, raptorctl ~34KB
 ```
 
 ### 5.2 Full Build
@@ -391,7 +392,7 @@ Binary sizes (stripped): rvd ~195KB, rsd ~322KB, raptorctl ~73KB
 Daemons: RVD + RAD + ROD + RSD + RHD + RMR + RIC + RMD + RWD + RWC
 Tools: raptorctl, ringdump, rac
 Dependencies: all of the above
-Approximate total (stripped): ~1MB
+Approximate total (stripped, T31): ~520KB
 ```
 
 ---

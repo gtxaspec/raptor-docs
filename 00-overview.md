@@ -207,7 +207,8 @@ The HAL is implemented as `libraptor_hal.a` at `~/projects/thingino/raptor-hal/`
 - `include/raptor_hal.h` — single public header, the only file daemons include
 - `src/` — implementation files (per-module, not per-SoC)
 - `Makefile` — builds for any SoC: `make PLATFORM=T31 CROSS_COMPILE=mipsel-linux-gnu-`
-- Compiles to ~52KB static library
+- Compiles to two static libraries: `libraptor_hal_video.a` + `libraptor_hal_audio.a`
+  (linked into RVD at ~140KB stripped, RAD at ~47KB stripped)
 
 ## Document Index
 
@@ -235,6 +236,7 @@ The HAL is implemented as `libraptor_hal.a` at `~/projects/thingino/raptor-hal/`
 - [25-rwd-webrtc-design.md](25-rwd-webrtc-design.md) — WebRTC daemon (WHIP, ICE-lite, DTLS-SRTP)
 - [26-ric-daynight-design.md](26-ric-daynight-design.md) — Day/night detection algorithm
 - [27-multi-sensor.md](27-multi-sensor.md) — Multi-sensor support (T23 dual, T40/T41 IMPVI)
+- [28-ivs-detection.md](28-ivs-detection.md) — IVS detection (motion, person, YOLO inference)
 
 ### Operations
 - [30-fps-troubleshooting.md](30-fps-troubleshooting.md) — FPS pipeline troubleshooting
