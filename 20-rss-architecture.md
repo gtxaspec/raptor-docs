@@ -537,25 +537,48 @@ These daemons control hardware peripherals and do not process frame data.
   dedicated thread. RMD queries the results via RVD's control socket
   (`ivs-status` command). This follows the same split as RVD/RIC:
   RVD does hardware plumbing, RMD owns the detection policy.
-- **Grid-based ROI**: Default 4x4 grid (16 zones, configurable via
-  `grid = NxN`). Each zone reports motion independently. Explicit ROI
-  regions can override the grid via `roi_count` + `roi0..roiN` config.
-  Sensitivity is per-zone (0-4 for move algo, 0-3 for base_move).
+- **Detection backends**: RVD supports 4 algorithms selected via
+  `[motion] algorithm`:
+  - `move` — SDK grid-based motion detection (default, no extra deps)
+  - `base_move` — simpler motion flag, no spatial info
+  - `persondet` — person detection via `libpersonDet_inf.so` + `libjzdl.so`
+  - `yolo` — JZDL standalone YOLOv5 multi-class inference via
+    `libjzdl.m.so` + model file
+  All backends produce the same `ivs-status` and `ivs-detections`
+  responses. RMD is backend-agnostic — it only reads motion/person
+  state from RVD. See [28-ivs-detection.md](28-ivs-detection.md) for
+  algorithm details.
+- **Grid-based ROI** (move algorithm): Default 4x4 grid (16 zones,
+  configurable via `grid = NxN`). Each zone reports motion independently.
+  Explicit ROI regions can override the grid via `roi_count` + `roi0..roiN`
+  config. Sensitivity is per-zone (0-4 for move algo, 0-5 for persondet).
+- **Startup sequence**: RMD waits for RVD's IVS to become active
+  (polls `ivs-status` until `active=true`), then applies motion config
+  to RVD (`ivs-set-sensitivity`, `ivs-set-skip-frames`) before entering
+  the main detection loop.
 - **State machine**:
   - IDLE → ACTIVE: motion detected → start recording, assert GPIO
   - ACTIVE → ACTIVE: continued motion (reset cooldown timer)
   - ACTIVE → COOLDOWN: motion stops → start cooldown timer
   - COOLDOWN → IDLE: cooldown expired → stop recording, deassert GPIO
   - COOLDOWN → ACTIVE: motion resumes → cancel cooldown
+- **Person tracking**: When persondet or yolo is active, RMD tracks
+  `person_count` from the `ivs-status` response and reports it via its
+  own control socket.
 - **Actions**:
   - Recording: sends `start`/`stop` commands to RMR via control socket
   - GPIO: sysfs export/set for alarm output or LED
   - Configurable `record_post_sec` to continue recording after motion stops
+- **Control commands**:
+  - `status` (default) — state, recording, sensitivity, skip_frames, persons
+  - `sensitivity` — set sensitivity and relay to RVD `ivs-set-sensitivity`
+  - `skip-frames` — set skip count and relay to RVD `ivs-set-skip-frames`
+  - Common commands: `config-get`, `config-get-section`, `config-save`
 - **HAL dependency**: None. Pure IPC consumer (same as RIC, RSD, RMR).
-- **Dependencies**: librss_ipc (control socket client), librss_common.
+- **Dependencies**: librss_ipc (control socket client), librss_common
+  (config, logging, cJSON for ctrl command building).
 - **IPC**: Polls RVD `ivs-status` every `poll_interval_ms` (default 500ms).
-  Own control socket at `/var/run/rss/rmd.sock` for status and sensitivity
-  relay to RVD.
+  Own control socket at `/var/run/rss/rmd.sock`.
 - **Why separate**: Motion detection policy (cooldown, actions, sensitivity)
   is independent of the IVS hardware pipeline. RMD can be restarted or
   reconfigured without interrupting video streaming or IVS processing.
