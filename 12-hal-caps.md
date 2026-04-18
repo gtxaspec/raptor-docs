@@ -100,10 +100,6 @@ typedef struct {
     bool uses_new_sdk;            /* New-style encoder API (T31+) */
     bool uses_impvi;              /* ISP functions take IMPVI_NUM (T32/T40/T41) */
 
-    /* ── Numeric Limits ── */
-    int  max_encode_channels;     /* Maximum encoder channels */
-    int  max_osd_regions;         /* Maximum OSD regions per group */
-    int  max_osd_groups;          /* Maximum OSD groups */
     int  max_isp_osd_regions;     /* ISP OSD regions (0 if unsupported) */
 } rss_hal_caps_t;
 ```
@@ -122,8 +118,8 @@ typedef struct {
 | `has_bufshare` | - | - | - | - | Y | - | Y | Y |
 | `has_set_default_param` | - | - | - | - | Y | Y | Y | Y |
 | `has_capped_rc` | - | - | - | - | Y | Y | Y | Y |
-| `has_smart_rc` | Y | Y | Y | Y | - | - | - | - |
-| `has_gop_attr` | - | - | - | - | Y | Y | Y | Y |
+| `has_smart_rc` | Y | Y | Y | Y | - | Y | - | - |
+| `has_gop_attr` | - | - | - | - | Y | - | Y | Y |
 | `has_set_bitrate` | - | - | - | - | Y | Y | Y | Y |
 | `has_stream_buf_size` | - | - | - | - | Y | - | Y | Y |
 | `has_encoder_pool` | - | - | Y | - | Y | Y | Y | Y |
@@ -156,7 +152,7 @@ typedef struct {
 | `has_h265_trans` | - | Y | - | - | - | Y | - | - |
 | `has_enc_crop` | - | - | - | - | - | Y | - | - |
 | `has_eval_info` | - | - | - | - | Y | - | - | - |
-| `has_poll_module` | - | Y | - | - | Y | - | Y | Y |
+| `has_poll_module` | - | Y | - | - | Y | - | - | Y |
 | `has_resize_mode` | - | - | - | - | Y | - | - | Y |
 | `has_jpeg_ql` | - | Y | - | - | - | - | - | Y |
 | `has_jpeg_qp` | - | - | - | - | - | Y | - | - |
@@ -172,7 +168,7 @@ T32 has the broadest extended encoder feature set (T32's SDK exposes 101 encoder
 | `has_t23_multicam_api` | - | - | Y | - | - | - | - | - |
 | `has_defog` | - | - | Y | - | Y | - | - | - |
 | `has_dpc` | - | - | Y | - | Y | - | - | - |
-| `has_drc` | Y | Y | Y | Y | Y | - | - | - |
+| `has_drc` | - | Y | Y | - | Y | - | - | - |
 | `has_face_ae` | - | - | - | - | - | Y | Y | Y |
 | `has_bcsh_hue` | - | - | Y | - | Y | Y | Y | Y |
 | `has_sinter` | Y | Y | Y | Y | Y | - | - | - |
