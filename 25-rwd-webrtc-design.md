@@ -88,7 +88,7 @@ Silent by default — zero overhead when not enabled.
 
 - compy (SRTP, RTP, NAL — already linked by RSD)
 - mbedTLS with `MBEDTLS_SSL_DTLS_SRTP` enabled (DTLS handshake + key export)
-- libopus (backchannel decode — optional, for two-way audio)
+- libopus (audio transcode to Opus for WebRTC output + backchannel decode)
 - No other external libraries
 
 ---
