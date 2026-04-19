@@ -34,9 +34,8 @@ RSS is a microservices-based streaming platform for embedded IP cameras:
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-The HAL is consumed primarily by **RVD** (video pipeline), **RAD** (audio),
-**ROD** (OSD regions), and **RIC** (exposure queries). All other daemons
-interact via IPC, not hardware.
+Only **RVD** (video pipeline) and **RAD** (audio capture) link against the
+HAL. All other daemons interact via SHM rings and control sockets.
 
 ## SDK Generations
 
