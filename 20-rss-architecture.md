@@ -826,7 +826,7 @@ typedef struct __attribute__((aligned(64))) {
 } rss_ring_header_t;
 
 #define RSS_RING_MAGIC    0x52535352   /* "RSSR" */
-#define RSS_RING_VERSION  2
+#define RSS_RING_VERSION  3            /* v3: adds reference mode */
 
 typedef struct {
     _Atomic uint64_t  seq;              /* sequence number when written */
@@ -987,6 +987,60 @@ No mutexes are involved. The design relies on:
 - Atomic `write_seq` with release/acquire ordering
 - Data region sized large enough that consumers finish reading before
   the producer wraps around (typically 2-4 seconds of buffered data)
+
+#### Reference Mode (v3, zero-copy)
+
+When `[ring] refmode = true`, the ring operates in reference mode: frame
+data lives in an external shared memory region instead of the ring's data
+region. The ring carries metadata only (~9KB per stream vs ~1-2MB).
+
+**Two backing store paths:**
+
+| Encoder IP | SoCs | Backing store | How it works |
+|---|---|---|---|
+| Allegro | T31, T40, T41 | `/dev/rmem` | Encoder DMA's to reserved memory. Consumer mmaps `/dev/rmem` at the physical base offset stored in `ref_rmem_offset`. |
+| Ingenic VPU | T10-T30, T32, T33 | Named POSIX SHM | HAL probes libimp's channel struct at runtime and injects a SHM buffer address before `CreateChn`. Encoder writes to SHM via DMMU-backed DMA. Consumer opens `/rss_enc_<ring_name>`. |
+
+The consumer path is transparent: `rss_ring_read()` copies from whichever
+backing store is active. On open, the consumer tries named SHM first, then
+falls back to `/dev/rmem`.
+
+**v3 header additions:**
+
+```c
+uint32_t flags;                    /* RSS_RING_FLAG_REFMODE (0x01) */
+uint32_t ref_buf_count;            /* encoder output buffer count  */
+uint32_t ref_rmem_size;            /* backing store mmap size      */
+uint32_t ref_rmem_offset;          /* /dev/rmem mmap file offset   */
+uint32_t ref_buf_stride;           /* per-buffer size in bytes     */
+_Atomic uint32_t ref_buf_gen[8];   /* per-buffer generation counter */
+```
+
+**v3 slot additions:**
+
+```c
+uint8_t  buf_idx;   /* encoder buffer index (was _pad)      */
+uint32_t buf_gen;   /* generation at publish time            */
+```
+
+The generation counter detects stale reads: the producer increments
+`ref_buf_gen[buf_idx]` before publishing a new frame to the same buffer.
+The consumer compares the slot's `buf_gen` against the header's current
+generation after its memcpy — a mismatch means the buffer was reused
+during the copy.
+
+**Producer API:**
+
+```c
+int rss_ring_enable_refmode(rss_ring_t *ring, uint32_t rmem_size,
+                            uint32_t rmem_offset, uint8_t buf_count,
+                            uint32_t buf_stride);
+
+int rss_ring_publish_ref(rss_ring_t *ring, uint32_t data_offset,
+                         uint32_t length, int64_t timestamp,
+                         uint16_t nal_type, uint8_t is_key,
+                         uint8_t buf_idx);
+```
 
 ### 2.2 OSD SHM Double-Buffer
 
