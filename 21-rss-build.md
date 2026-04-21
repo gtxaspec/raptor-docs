@@ -78,6 +78,13 @@ raptor/                  # main repo: all daemons and tools
 │   ├── rwd_signaling.c
 │   ├── rwd_media.c
 │   └── webrtc.html
+├── rfs/                 # file source daemon (MP4/Annex B, no HAL)
+│   ├── Makefile
+│   ├── rfs_main.c
+│   ├── rfs_annexb.c     # Annex B scanner, SPS parser, B-frame reorder
+│   ├── rfs_annexb.h
+│   ├── rfs_mp4.c        # MP4 demuxer (libmov wrapper)
+│   └── rfs_mp4.h
 ├── raptorctl/           # CLI control tool
 │   ├── Makefile
 │   ├── raptorctl.h

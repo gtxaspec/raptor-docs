@@ -506,17 +506,30 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Why separate**: V4L2 clients may misbehave or consume frames slowly.
   The bridge isolates them from the encoding pipeline.
 
-#### RFS -- File Source *(planned, not yet implemented)*
+#### RFS -- File Source
 
 - **Role**: Replace RVD+RAD on platforms without ISP/encoder hardware
-  (A1, x86 testing, development). Reads Annex B H.264/H.265 + raw audio
-  from files and publishes to ring buffers, allowing all consumer daemons
-  (RSD, RHD, RWD, RMR) to work unmodified against file-backed streams.
-- **Codec detection**: Auto-detect codec and resolution from SPS/PPS
-  NAL units in the file. FPS from config, configurable loop.
+  (A1, x86 testing, development). Publishes video and audio to ring
+  buffers from files, allowing all consumer daemons (RSD, RHD, RWD,
+  RMR) to work unmodified against file-backed streams.
+- **Input formats**:
+  - **MP4/MOV containers**: H.264/H.265 video + AAC/Opus/G.711 audio
+    (direct passthrough). MP3 audio decoded to PCM and re-encoded via
+    RAD codec plugins. Zero-copy via mmap — only the frame index is
+    stored in memory, AVCC-to-Annex B conversion done on-the-fly.
+    Container PTS used for pacing and timestamps (handles B-frames).
+  - **Raw Annex B files**: H.264/H.265 bitstreams with auto-detection
+    of codec and resolution from SPS. B-frame display-order reordering
+    via slice_type parsing. Separate raw PCM audio file, encoded
+    through RAD codec plugins (L16, PCMU, PCMA, AAC, Opus).
 - **Config**: `[filesource]` section — `video_file`, `audio_file`,
-  `fps`, `loop`.
-- **Dependencies**: librss_ipc, librss_common. No HAL dependency.
+  `codec`, `fps`, `loop`, `audio_codec`, `audio_sample_rate`,
+  ring sizing.
+- **Control**: status, pause/resume, seek (by frame number).
+- **Source files**: `rfs_main.c` (daemon), `rfs_annexb.c` (Annex B
+  scanner + SPS parser), `rfs_mp4.c` (MP4 demuxer via libmov).
+- **Dependencies**: librss_ipc, librss_common, RAD codec plugins,
+  libmov (MP4 demuxer), libhelix-mp3 (MP3 transcode). No HAL.
 - **Why separate**: RFS is a testing/development tool and an alternative
   producer for non-camera platforms. Keeping it separate from RVD avoids
   polluting the production video daemon with file I/O paths.
