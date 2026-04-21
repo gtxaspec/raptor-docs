@@ -123,55 +123,77 @@ ring buffers. Exactly one instance of each runs per camera.
 #### ROD -- OSD Overlay Daemon
 
 - **Role**: Render OSD overlays into BGRA bitmaps and publish them to
-  OSD SHM double-buffers. Manages 5 region types per stream:
-  - **Time** (top-left): timestamp rendered at 1Hz.
-  - **Uptime** (top-right): system uptime, right-aligned.
-  - **Text/Description** (top-center): configurable label, center-aligned.
-  - **Logo** (bottom-right): loaded from a BGRA file (100x30 — T31 SDK
-    limitation with larger bitmaps).
-  - **Privacy** (center): hidden until activated; covers the frame when
-    privacy mode is toggled on via raptorctl.
+  OSD SHM double-buffers. Manages a dynamic element registry with up
+  to 16 named elements per daemon instance, defined via `[osd.*]`
+  config sections or added at runtime via control socket commands.
+- **Element types**:
+  - **text**: Template-driven text with variable expansion. Rendered
+    at 1Hz (tick mode) or on change. Template variables: `%time%`,
+    `%uptime%`, `%hostname%`, `%ip%`, `%ip6%`, plus custom variables
+    set via `set-var`.
+  - **image**: Static BGRA file loaded at startup (e.g., logo).
+  - **receipt**: Scrolling text block fed by control socket, FIFO, or
+    UART. Lines accumulate in a circular buffer (up to 32 lines x
+    80 chars) with optional semi-transparent background. Used for
+    POS/serial data overlay.
+  - **overlay**: Full-frame transparent overlay for detection bounding
+    boxes (sub-stream only).
+  - **privacy**: Auto-created hidden text element, shown when privacy
+    mode is activated.
 - **HAL dependency**: None. ROD does not touch the HAL. It renders
   bitmaps in userspace using libschrift for font rendering with a glyph
   cache (O(1) ASCII lookup). The font file is loaded once and shared
   across all font contexts.
-- **Per-element font sizing**: Each text element (time, uptime, text)
-  can have its own font size via `time_font_size`, `uptime_font_size`,
-  `text_font_size` config keys (0 = use global `font_size`). Font
-  contexts are stored as `fonts[stream][element]` — 3 per stream.
-  Privacy text reuses the time font.
+- **Per-element styling**: Each element can override global font_size,
+  color, stroke_color, and stroke_size. Font contexts use a refcounted
+  pool (up to 8 per stream) that deduplicates same-size fonts.
 - **Per-stream scaling**: Font sizes auto-scale for sub-streams
   (proportional to resolution ratio) with a minimum of 12px.
-- **Runtime font size change**: `set-font-size` (global) or
-  `set-time-font-size` etc. (per-element) re-rasterizes glyphs,
-  recreates SHM regions with new dimensions, and notifies RVD via
-  `osd-restart` to resize the OSD pool and recreate HAL regions.
-- **Element show/hide**: `enable-time`, `enable-uptime`, `enable-text`,
-  `enable-logo` toggle visibility via RVD's `osd-show` command (single
-  HAL `osd_show_region` call — no pipeline restart). Optional stream
-  parameter for per-stream control.
-- **Element positioning**: `set-position` moves elements to named
-  positions (`top_left`, `bottom_right`, `center`, etc.) or absolute
-  `x,y` coordinates via RVD's `osd-position` command (single HAL
-  `SetRgnAttr` call). Coordinates are clamped to stream dimensions.
-  Optional stream parameter.
-- **Text alignment**: Left for time, right for uptime, center for
-  description and privacy text.
-- **Outputs**: OSD SHM double-buffer (one per OSD region per stream
-  channel). Sets dirty flag after each update; RVD's OSD thread polls
-  dirty flags.
+- **Dynamic element management**: Elements can be added, removed, and
+  modified at runtime via `add-element`, `remove-element`,
+  `set-element`, `show-element`, `hide-element` commands. RVD discovers
+  new elements via `/dev/shm` scanning on a 5-second cycle.
+- **Element positioning**: Named positions (`top_left`, `top_center`,
+  `top_right`, `bottom_left`, `bottom_center`, `bottom_right`,
+  `left_center`, `right_center`, `center`) or absolute `x,y`
+  coordinates. Positions are pushed to RVD at startup and on
+  `add-element` via the `osd-position` IPC command.
+- **Config format**: `[osd.*]` sections in raptor.conf define elements.
+  Global settings (font, colors, stroke) in `[osd]`. Example:
+  ```ini
+  [osd.timestamp]
+  type = text
+  template = %time%
+  position = top_left
+  align = left
+  ```
+- **Receipt input**: FIFO (`source = fifo`, `device = /tmp/receipt`)
+  or UART (`source = uart`, `device = /dev/ttyS1`). Input fd is
+  registered with ROD's epoll loop. FIFO auto-reopens when writer
+  closes. Line accumulator handles partial reads with configurable
+  max line length and timeout-based EOL.
+- **OSD pool sizing**: ROD calculates total pool from all element SHM
+  dimensions and sends `pool_kb` to RVD via `osd-restart` when font
+  sizes change. RVD also scans `[osd.*]` config sections at startup
+  to pre-calculate the pool (SDK cannot resize after init).
+- **Outputs**: OSD SHM double-buffer (one per element per stream).
+  Sets dirty flag after each update; RVD's OSD thread polls dirty
+  flags at 10Hz.
 - **RVD coordination**: ROD communicates with RVD via control socket
   for operations that require HAL access (show/hide, positioning,
-  OSD restart). SHM dimension probing allows RVD to match region
-  sizes to ROD's actual glyph metrics on first open.
-- **Render loop**: 1Hz cycle — renders all dirty regions, updates SHM
-  double-buffers.
+  OSD restart). RVD reads element positions from `[osd.*]` config
+  sections as fallback when ROD hasn't pushed positions yet.
+- **Render loop**: 1Hz cycle for text/receipt elements, 500ms for
+  detection overlay. Updates SHM double-buffers.
 - **Heartbeat**: ROD sends a 1Hz `rss_osd_heartbeat()` (dirty flag
   only, no buffer swap) on one region per stream, so RVD can detect
   liveness even when all OSD elements are static.
+- **Input sanitization**: Control characters (< 0x20) and non-ASCII
+  bytes (> 0x7E) are stripped from user-supplied text. The font
+  renderer only caches ASCII 0x20-0x7E glyphs.
 - **Why separate**: Font rendering is CPU-intensive relative to the
   frame path. Isolating it lets ROD run at a lower priority without
-  risking frame drops. ROD can be killed and restarted — RVD detects
+  risking frame drops. ROD can be killed and restarted -- RVD detects
   the restart via SHM inode change (clean exit) or dirty-flag timeout
   (crash/kill -9), clears the OSD to transparent, unlinks orphaned SHM,
   and reopens when ROD comes back.
@@ -735,18 +757,20 @@ These daemons control hardware peripherals and do not process frame data.
 | Command | Description |
 |---------|-------------|
 | `privacy [on\|off] [ch]` | Toggle privacy mode |
-| `set-text <text>` | Change OSD text |
-| `set-font-color <0xAARRGGBB>` | Text color |
-| `set-stroke-color <0xAARRGGBB>` | Stroke color |
-| `set-stroke-size <0-5>` | Stroke width |
-| `enable-time <0\|1>` | Show/hide timestamp |
-| `enable-uptime <0\|1>` | Show/hide uptime |
-| `enable-text <0\|1>` | Show/hide camera text |
-| `enable-logo <0\|1>` | Show/hide logo |
-| `set-position <elem> <pos>` | Move element |
-| `set-font-size <10-72>` | Font size (all elements) |
-| `set-time-font-size <10-72>` | Per-element font size |
-| `set-uptime-font-size` / `set-text-font-size` | Per-element font size |
+| `elements` | List all OSD elements (JSON) |
+| `add-element <name> [key=val]...` | Create element at runtime |
+| `remove-element <name>` | Remove element |
+| `set-element <name> [key=val]...` | Modify element (template, position, font_size, color, etc.) |
+| `show-element <name>` | Show element |
+| `hide-element <name>` | Hide element |
+| `set-var <name> <value>` | Set custom template variable |
+| `receipt [name] <text>` | Append line to receipt element |
+| `receipt-clear [name]` | Clear receipt display |
+| `set-position <elem> <pos>` | Move element (named position or x,y) |
+| `set-font-size <10-72>` | Global font size |
+| `set-font-color <0xAARRGGBB>` | Global text color |
+| `set-stroke-color <0xAARRGGBB>` | Global stroke color |
+| `set-stroke-size <0-5>` | Global stroke width |
 
 **Other daemon commands:**
 
@@ -1800,27 +1824,38 @@ port = 8080
 [osd]
 enabled = true
 font = /usr/share/fonts/default.ttf
-font_size = 24             # main stream; sub stream auto-scaled
-stream1_font_size = 12     # optional per-stream override
-timestamp = true
-timestamp_fmt = %Y-%m-%d %H:%M:%S
-label = Camera
-# logo = /usr/share/images/thingino_100x30.bgra  # BGRA file (omit to disable)
-# logo_width = 100
-# logo_height = 30
-privacy_color = 0xFF000000            # BGRA black
+font_size = 24
+font_color = 0xFFFFFFFF
+stroke_color = 0xFF000000
+font_stroke = 1
+time_format = %Y-%m-%d %H:%M:%S
+privacy_color = 0xFF000000
 
-# Per-stream region positions (named_position or x,y coords)
-stream0_time_pos = top_left
-stream0_uptime_pos = top_right
-stream0_desc_pos = top_center
-stream0_logo_pos = bottom_right
-stream0_privacy_pos = center
-stream1_time_pos = top_left
-stream1_uptime_pos = top_right
-stream1_desc_pos = top_center
-stream1_logo_pos = bottom_right
-stream1_privacy_pos = center
+[osd.timestamp]
+type = text
+template = %time%
+position = top_left
+align = left
+
+[osd.uptime]
+type = text
+template = %uptime%
+position = top_right
+align = right
+
+[osd.camera]
+type = text
+template = Camera
+position = top_center
+align = center
+update = change
+
+[osd.logo]
+type = image
+path = /usr/share/images/thingino_100x30.bgra
+width = 100
+height = 30
+position = bottom_right
 
 [ircut]
 enabled = true
