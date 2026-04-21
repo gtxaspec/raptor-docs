@@ -195,7 +195,7 @@ make distclean
 
 | Variable | Description |
 |----------|-------------|
-| `PLATFORM` | Target SoC: T20, T21, T23, T30, T31, T32, T40, T41 |
+| `PLATFORM` | Target SoC: T20, T21, T23, T30, T31, T32, T40, T41, A1 |
 | `CROSS_COMPILE` | Compiler prefix (e.g., `mipsel-linux-`) |
 | `SYSROOT` | Buildroot sysroot path (for shared lib linking) |
 
@@ -256,6 +256,7 @@ make distclean
 | `t32` | T32 | New | XBurst1, dual-sensor |
 | `t40` | T40 | IMPVI | XBurst2 |
 | `t41` | T41 | IMPVI | XBurst2 |
+| `a1` | A1 | IMPVI | XBurst2, 1MB L2, no ISP — uses RFS instead of RVD |
 
 ---
 

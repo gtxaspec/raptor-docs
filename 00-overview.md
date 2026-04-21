@@ -3,8 +3,9 @@
 ## Purpose
 
 This documentation provides complete specifications for the RSS Hardware
-Abstraction Layer (HAL) across 8 Ingenic SoCs, plus system architecture,
-build integration, and operational reference for the daemon suite.
+Abstraction Layer (HAL) across 9 Ingenic SoCs (T20, T21, T23, T30, T31,
+T32, T40, T41, A1), plus system architecture, build integration, and
+operational reference for the daemon suite.
 
 ## RSS Architecture Summary
 

@@ -1,6 +1,6 @@
 # 12 -- HAL Capability Struct and Per-SoC Values
 
-This document defines the complete `rss_hal_caps_t` struct and provides the exact capability values for each of the 8 supported Ingenic SoCs. All values are derived from the SDK difference analysis in documents 01 through 08.
+This document defines the complete `rss_hal_caps_t` struct and provides the exact capability values for each supported Ingenic SoC (T20, T21, T23, T30, T31, T32, T40, T41). A1 has no ISP/encoder and does not use the HAL — it runs RFS as the video source instead of RVD. All values are derived from the SDK difference analysis in documents 01 through 08.
 
 ---
 
