@@ -1857,6 +1857,19 @@ width = 100
 height = 30
 position = bottom_right
 
+# Receipt/POS text overlay — scrolling text block from serial, FIFO, or CLI
+# [osd.receipt]
+# type = receipt
+# position = right_center
+# align = right
+# max_lines = 10
+# max_line_length = 25
+# font_size = 20
+# bg_color = 0x80000000         # semi-transparent black background
+# source = fifo                 # fifo, uart, or omit for CLI-only
+# device = /tmp/osd_receipt     # FIFO path (created if missing) or UART device
+# timeout = 0                   # force EOL after N seconds of silence (0 = disabled)
+
 [ircut]
 enabled = true
 mode = auto
