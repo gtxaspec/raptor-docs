@@ -196,6 +196,11 @@ ring buffers. Exactly one instance of each runs per camera.
   "speaker" SHM ring (created by `rac play` or RSD backchannel) and
   calls `ao_send_frame()`. Auto-reconnects when the speaker ring is
   recreated by a new client.
+- **Timestamps**: Ring timestamps use `rss_timestamp_us()` (`CLOCK_MONOTONIC`)
+  as the synthetic base, incremented by `samples * 1000000 / sample_rate`
+  per frame. SDK audio timestamps (`IMPAudioFrame.timeStamp`) are ignored
+  on all platforms — they use a different clock domain from the encoder on
+  some SoCs (T31), causing A-V sync overflow when cross-referenced.
 - **Outputs**: Audio SHM ring (input/encoding path).
 - **Inputs**: Speaker SHM ring (output/playback path).
 - **Thread model**: Main thread (AI read loop + control socket), AO
@@ -270,17 +275,37 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Network**: Dual-stack IPv6 (AF_INET6 with IPV6_V6ONLY=0), port 554.
   Per-client RTP timestamp offsets ensure each client sees timestamps
   starting from zero on connect (set on first keyframe delivery).
-- **Send architecture**: Per-client send threads decouple the ring reader
-  from network I/O. The ring reader reads each frame into `frame_buf`,
-  then pushes a malloc copy into each client's send queue (copy-on-push).
-  Each client's send thread independently drains its queue through
-  blocking TLS/TCP writes. This design eliminates TLS-induced pixelation:
-  software mbedTLS on MIPS can consume 30-50% CPU, and blocking TLS
-  writes in the reader caused frame skips and IDR storms. With the sendq,
-  TLS work is isolated per-client and the reader never blocks on I/O.
-  An earlier zero-copy barrier design (atomic refcount on `frame_buf`,
-  condvar signal on last release) was replaced by copy-on-push because
-  the barrier capped throughput at 1/send_latency on single-core SoCs.
+  Per-client monotonic guard prevents backward PTS from offset resets.
+- **Timing**: Video RTP timestamps use IMP encoder hardware timestamps
+  (0.18ms jitter on T31). Audio RTP uses synthetic cadence anchored to
+  CLOCK_MONOTONIC (exact frame_samples per frame — 1024 for AAC, 960
+  for Opus, length/2 for L16, length for G.711). RTCP SR NTP also uses
+  CLOCK_MONOTONIC. See §Timing Architecture below.
+- **Write serialization**: A per-client `write_lock` mutex serializes
+  RTP data (send thread) and RTSP responses (epoll thread) on TCP
+  interleaved connections. Without this, RTSP keepalive responses can
+  interleave bytes with RTP packets, corrupting the TCP stream.
+- **Send architecture (video)**: Per-client send threads decouple the
+  ring reader from network I/O. With refmode, the sendq holds zero-copy
+  pointers into encoder DMA memory — no malloc, no memcpy. The send
+  thread validates `buf_gen` before each send to detect encoder buffer
+  recycling. Without refmode (embedded mode), the sendq holds malloc'd
+  copies (copy-on-push). Each client's send thread independently drains
+  its queue through blocking TLS/TCP writes.
+- **Send architecture (audio)**: Audio bypasses the sendq entirely —
+  the audio reader thread writes directly to each client's socket under
+  `write_lock`. Audio frames are ~1KB and write instantly. This prevents
+  audio from being collateral damage when video IDR bursts fill the
+  shared sendq.
+- **RTCP Sender Reports**: Configurable via `rtcp_sr` in `[rtsp]`
+  (default off). When enabled, SR fires every 30 seconds from the send
+  thread. The NTP timestamp uses CLOCK_MONOTONIC (via `pthread_once`
+  for thread-safe init). The RTP timestamp is extrapolated to the SR
+  send instant using `last_send_time_us`. SR is disabled by default
+  because it adds measurable jitter on single-core SoCs.
+- **SDP**: Includes `a=type:broadcast`, `a=range:npt=now-`, and
+  `o=- 0 0 IN IP4 0.0.0.0` to match live555 format for VLC
+  compatibility. PLAY response uses `Range: npt=0.000-`.
 - **Why separate**: RTSP client management (socket I/O, RTP packetization,
   RTCP) is complex and has its own failure modes (slow clients, network
   errors). Isolating it means a misbehaving RTSP client cannot affect
@@ -1001,9 +1026,18 @@ region. The ring carries metadata only (~9KB per stream vs ~1-2MB).
 | Allegro | T31, T40, T41 | `/dev/rmem` | Encoder DMA's to reserved memory. Consumer mmaps `/dev/rmem` at the physical base offset stored in `ref_rmem_offset`. |
 | Ingenic VPU | T10-T30, T32, T33 | Named POSIX SHM | HAL probes libimp's channel struct at runtime and injects a SHM buffer address before `CreateChn`. Encoder writes to SHM via DMMU-backed DMA. Consumer opens `/rss_enc_<ring_name>`. |
 
-The consumer path is transparent: `rss_ring_read()` copies from whichever
-backing store is active. On open, the consumer tries named SHM first, then
-falls back to `/dev/rmem`.
+**Consumer paths:**
+
+- `rss_ring_read()`: copies frame data from the backing store into a
+  caller-owned buffer, then re-validates. Safe but requires a memcpy.
+- `rss_ring_peek()` / `rss_ring_peek_done()`: returns a pointer directly
+  into the backing store memory — zero copy. The caller must call
+  `peek_done()` after use to validate the encoder didn't recycle the
+  buffer. Used by RSD's zero-copy sendq to eliminate malloc+memcpy per
+  frame per client.
+
+On open, the consumer tries named SHM first, then falls back to
+`/dev/rmem`.
 
 **v3 header additions:**
 
@@ -1974,17 +2008,59 @@ rlatency rtsp://camera/stream0 -n 500
 Adjusting for NTP offset (~14ms), real latency is ~5-27ms over wired
 LAN with UDP transport.
 
-### 10.5 A/V Sync
+### 10.5 Timing Architecture
 
-Both video and audio RTP timestamps derive from `meta.timestamp`
-(IMP's `CLOCK_MONOTONIC_RAW`, microsecond precision). Same clock
-source = zero inter-stream drift by construction. Measured 7ms
-delta over 1 hour (noise, not drift). Previous counter-based
-approach drifted ~10.6 seconds per day due to audio ADC crystal
-offset.
+**Clock sources:**
 
-Audio is gated on the first video keyframe so both RTP timelines
-start together, eliminating initial audio lead.
+| Component | Clock | Used for |
+|---|---|---|
+| Video RTP | IMP encoder `stream.pack[0].timestamp` | Frame PTS (hardware capture time) |
+| Audio RTP | `CLOCK_MONOTONIC` + synthetic cadence | Frame PTS (exact frame_samples/frame) |
+| RTCP SR NTP | `CLOCK_MONOTONIC` + REALTIME epoch offset | NTP-RTP mapping for clients |
+| Internal timing | `rss_timestamp_us()` = `CLOCK_MONOTONIC` | Stats, IDR throttle, idle detection |
+
+**Design rationale**: Video uses IMP encoder timestamps for best precision
+(0.18ms jitter on T31 — hardware capture time). Audio uses synthetic
+cadence from `CLOCK_MONOTONIC` because: (a) IMP audio SDK timestamps
+have ±20ms delivery jitter, (b) `IMP_System_GetTimeStamp()` may be in
+a different clock domain from the encoder on some SoCs (especially after
+a previous process calls `RebaseTimeStamp`), (c) synthetic cadence gives
+σ=0.0ms audio jitter matching prudynt-t/live555.
+
+**Per-client offsets**: Both video and audio per-client offsets are set on
+first frame delivery, producing `client_ts = 0` at connect time. A
+per-client monotonic guard (`last_video_client_ts`) prevents backward PTS
+from offset resets after sendq flushes. The guard is never reset once set.
+
+**Audio cadence**: Per-codec frame duration: 1024 samples (AAC), 960
+(Opus), `length/2` (L16), `length` (G.711/PCMU/PCMA). First frame uses
+`CLOCK_MONOTONIC` for initial alignment; subsequent frames increment by
+exact `frame_samples`. This is the RFC-correct approach — RTP timestamps
+reflect the sampling instant, and audio hardware samples at a constant
+rate regardless of software delivery timing.
+
+**A/V gating**: Audio delivery is gated on the first video keyframe
+(`video_ts_base_set`) so both RTP timelines start together. A-V sync
+accuracy depends on the delay between keyframe and first audio frame
+(0-64ms, one audio frame duration).
+
+**RTCP SR**: Disabled by default (`rtcp_sr = false` in `[rtsp]` config).
+When enabled, fires every 30 seconds from the video/audio send path.
+NTP timestamp derived from `CLOCK_MONOTONIC` with a one-time offset
+to NTP epoch (thread-safe via `pthread_once`). RTP timestamp extrapolated
+to the SR send instant via `last_send_time_us` per RFC 3550 §6.4.1.
+Disabled by default because the SR write adds measurable jitter on
+single-core SoCs.
+
+**Measured results (T31 ethernet, 120s):**
+
+| Metric | prudynt-t (live555) | Raptor |
+|---|---|---|
+| Video σ | 0.01ms | 0.18ms |
+| Video backward | 0 | 0 |
+| Video long gaps | 0 | 0 |
+| Audio σ | 0.0ms | ~1.5ms |
+| Eff FPS | 30.00 | 30.02 |
 
 ---
 
