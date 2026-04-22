@@ -1,4 +1,4 @@
-# Raptor Streaming System — Development Guide
+# Raptor Streaming System -- Development Guide
 
 Quick-start reference for contributing to RSS. This document is
 optimized for AI-assisted development but applies equally to human
@@ -15,6 +15,12 @@ monolithic streamer with isolated single-purpose daemons communicating
 via shared memory rings and Unix control sockets. On SoCs without an
 ISP (A1), RFS acts as the video source instead of RVD.
 
+Raptor is production quality software meant to be deployed to production cameras.
+Code quality, memory safety, and long-term reliability are non-negotiable.
+Every contribution must follow C best standards and practices -- write
+code you would trust to run unattended for years on hardware you
+cannot physically access. Do it right the first time.
+
 **Key constraints:**
 - Target devices have 32-256 MB RAM, no swap.
   Cache: T20/T21/T30 have 16 KB I + 16 KB D, no L2.
@@ -23,9 +29,9 @@ ISP (A1), RFS acts as the video source instead of RVD.
   T40 has 32 KB I + 32 KB D + 1 MB L2 (shared with AI engine).
   A1 has 32 KB I + 32 KB D + 1 MB L2.
 - All code is C11, cross-compiled for mipsel with uclibc or musl
-- Binary size and memory footprint matter — every kilobyte counts
+- Binary size and memory footprint matter -- every kilobyte counts
 - No dynamic allocation in hot paths (frame delivery, RTP packetization)
-- Daemons run 24/7 for months — leaks, even slow ones, are fatal
+- Daemons run 24/7 for months -- leaks, even slow ones, are fatal
 
 **Architecture reference:** `20-rss-architecture.md`
 **Build system:** `21-rss-build.md`
@@ -38,7 +44,7 @@ ISP (A1), RFS acts as the video source instead of RVD.
 Five git repos, expected as siblings:
 
 ```
-raptor/              Main repo — all daemons and tools
+raptor/              Main repo -- all daemons and tools
 raptor-hal/          Hardware abstraction layer (Ingenic SDK wrapper)
 raptor-ipc/          IPC primitives (SHM ring, OSD double-buffer, control socket)
 raptor-common/       Shared utilities (config, logging, JSON, net, TLS)
@@ -49,20 +55,20 @@ raptor-docs/         This documentation
 Each daemon lives in its own subdirectory under `raptor/`:
 
 ```
-rvd/   — Video pipeline (HAL owner, encoder, framesource, IVS, OSD)
-rsd/   — RTSP server (ring consumer, compy-based)
-rad/   — Audio capture and encoding
-rhd/   — HTTP server (snapshots, MJPEG, audio streaming)
-rod/   — OSD rendering (libschrift text, detection boxes)
-ric/   — IR-cut and day/night control
-rmr/   — Motion-triggered recording (fMP4)
-rmd/   — Motion detection state machine
-rwd/   — WebRTC server (WHIP signaling, DTLS-SRTP)
-rwc/   — USB webcam gadget (UVC+UAC)
-rfs/   — File source (MP4/Annex B playback into rings)
-raptorctl/  — CLI control tool
-ringdump/   — Ring buffer debug/dump tool
-rac/        — Audio codec test tool
+rvd/   -- Video pipeline (HAL owner, encoder, framesource, IVS, OSD)
+rsd/   -- RTSP server (ring consumer, compy-based)
+rad/   -- Audio capture and encoding
+rhd/   -- HTTP server (snapshots, MJPEG, audio streaming)
+rod/   -- OSD rendering (libschrift text, detection boxes)
+ric/   -- IR-cut and day/night control
+rmr/   -- Motion-triggered recording (fMP4)
+rmd/   -- Motion detection state machine
+rwd/   -- WebRTC server (WHIP signaling, DTLS-SRTP)
+rwc/   -- USB webcam gadget (UVC+UAC)
+rfs/   -- File source (MP4/Annex B playback into rings)
+raptorctl/  -- CLI control tool
+ringdump/   -- Ring buffer debug/dump tool
+rac/        -- Audio codec test tool
 ```
 
 Only RVD and RAD link against the HAL. All other daemons are pure
@@ -73,7 +79,7 @@ ring consumers or control-socket clients.
 ## 3. Code Style
 
 Raptor uses Linux kernel style with tabs. A `.clang-format` file
-enforces this — **always run `clang-format -i` before committing**.
+enforces this -- **always run `clang-format -i` before committing**.
 
 ### Rules
 
@@ -106,7 +112,7 @@ enforces this — **always run `clang-format -i` before committing**.
   wouldn't confuse a reader, don't write it.
 - File-level block comments are fine for describing the module's
   role (see any daemon's main `.c` file).
-- Never reference tickets, PRs, or session context in comments —
+- Never reference tickets, PRs, or session context in comments --
   those belong in the commit message.
 
 ---
@@ -137,7 +143,7 @@ enforces this — **always run `clang-format -i` before committing**.
 - `pthread_mutex_t` for complex shared state (detection results,
   OSD regions, client lists).
 - Control socket handlers run synchronously in the main thread via
-  `epoll` — no mutex needed for state accessed only from the
+  `epoll` -- no mutex needed for state accessed only from the
   ctrl handler.
 - Each encoder channel runs in a dedicated thread. Never access
   another channel's thread-local state without synchronization.
@@ -176,21 +182,37 @@ enforces this — **always run `clang-format -i` before committing**.
 Every daemon exposes a JSON-over-Unix-socket control interface. To
 add a new command:
 
-1. **Daemon side** — add an `if (strcmp(cmd, "your-cmd") == 0)`
+1. **Daemon side** -- add an `if (strcmp(cmd, "your-cmd") == 0)`
    block in the daemon's ctrl handler function. Parse input with
    `rss_json_get_int()`/`rss_json_get_str()`. Respond with
    `rss_ctrl_resp_ok()` or `rss_ctrl_resp_error()`.
 
-2. **raptorctl side** — add a help entry in `help_entries[]` and
-   a CLI dispatch block in `main()` that builds JSON via `jcmd()`,
-   `jadd_i()`, `jadd_s()`, `jstr()`. Simple no-arg commands fall
-   through to the generic pass-through — no dispatch needed.
+2. **raptorctl side** -- add a help entry in `help_entries[]`
+   (`raptorctl_help.c`) and a dispatch table entry in
+   `raptorctl_dispatch.c`. Simple no-arg commands fall through
+   to the generic pass-through -- no dispatch entry needed.
 
-3. **JSON mode** — commands added this way automatically work with
+3. **JSON mode** -- commands added this way automatically work with
    `raptorctl -j` since it sends raw JSON directly.
 
 Pattern reference: `stream-stop`/`stream-start` in `rvd_ctrl.c`,
 `mute`/`unmute` in `rad_main.c`.
+
+### Adding a Simple Encoder Parameter
+
+Simple encoder params (single int/uint/bool value, channel-scoped)
+use the table-driven system. To add one:
+
+1. Add a row to `enc_params[]` in `rvd_ctrl.c` with the param name,
+   type (`EP_INT`/`EP_U32`/`EP_BOOL`), and `offsetof` into
+   `rss_hal_ops_t` for the setter and getter.
+
+That's it -- no raptorctl changes needed. The param is immediately
+available via `enc-set`, `enc-get`, and `enc-list`.
+
+For struct-based params (multi-field args like ROI, super-frame),
+add an explicit handler in `handle_encoder_advanced_cmd()` plus a
+raptorctl dispatch entry.
 
 ### Adding a New Daemon
 
@@ -207,12 +229,12 @@ Consumer daemons follow a template:
 
 ### IPC Primitives
 
-- **SHM ring buffers** — lock-free single-producer multi-consumer
+- **SHM ring buffers** -- lock-free single-producer multi-consumer
   frame transport. Zero-copy in refmode (producer writes a pointer,
   consumers mmap the same physical memory).
-- **OSD double-buffer** — BGRA bitmap shared between ROD (writer)
+- **OSD double-buffer** -- BGRA bitmap shared between ROD (writer)
   and RVD (reader). Dirty flag + heartbeat for crash detection.
-- **Control sockets** — length-prefixed JSON over Unix domain
+- **Control sockets** -- length-prefixed JSON over Unix domain
   sockets. Synchronous request/response. Used for configuration,
   status queries, and runtime parameter changes.
 
@@ -222,7 +244,7 @@ Details: `20-rss-architecture.md` sections 3-5.
 
 The HAL wraps Ingenic's `libimp.so` SDK with a clean C API. It
 abstracts cross-SoC differences (9 SoC families, 3 SDK generations).
-A1 has no ISP — it skips the HAL entirely and uses RFS as the
+A1 has no ISP -- it skips the HAL entirely and uses RFS as the
 video source.
 
 - **Never call IMP_* functions directly** from daemon code. Always
@@ -282,7 +304,7 @@ cd ../raptor-common/tests && make test  # common tests (62 tests)
 ### On-Device Testing via NFS
 
 Test devices mount the build host's home directory at `/mnt/nfs`.
-No `scp` needed — edit, build, run directly:
+No `scp` needed -- edit, build, run directly:
 
 ```sh
 # On device:
@@ -324,7 +346,7 @@ The `.clang-format` in the repo root enforces the project style.
 - **No `printf` debugging in production code.** Use `RSS_INFO`,
   `RSS_WARN`, `RSS_ERROR`, `RSS_DEBUG`, `RSS_TRACE` from
   `rss_common.h`. Log levels are filterable at runtime.
-- **`-Os` globally.** Never change to `-O2`/`-O3` — I-cache
+- **`-Os` globally.** Never change to `-O2`/`-O3` -- I-cache
   pressure on MIPS32 makes larger code slower, not faster. Use
   `__attribute__((optimize("O3")))` on specific hot functions
   if profiling proves it helps.
@@ -360,7 +382,7 @@ The `.clang-format` in the repo root enforces the project style.
   waiting for a response.
 - **`rss_ctrl_send_command` has a timeout.** Default 5 seconds.
   Don't perform blocking operations (network I/O, disk writes)
-  inside a ctrl handler — it blocks all other ctrl clients.
+  inside a ctrl handler -- it blocks all other ctrl clients.
 
 ---
 

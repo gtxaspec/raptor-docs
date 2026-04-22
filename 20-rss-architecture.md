@@ -676,7 +676,9 @@ These daemons control hardware peripherals and do not process frame data.
 | `<daemon> config` | Show daemon's running config |
 | `test-motion [sec]` | Trigger clip recording (default 10s, bypasses RMD) |
 
-**RVD encoder commands** (42 commands — set/get for all HAL encoder ops):
+**RVD encoder commands:**
+
+Basic commands (persist config, custom response format):
 
 | Command | Description |
 |---------|-------------|
@@ -684,20 +686,31 @@ These daemons control hardware peripherals and do not process frame data.
 | `set-gop <ch> <len>` | Change GOP length |
 | `set-fps <ch> <fps>` | Change frame rate |
 | `set-qp-bounds <ch> <min> <max>` | Change QP range |
-| `set-qp <ch> <qp>` | Set fixed QP (all frames) |
 | `set-rc-mode <ch> <mode> [bps]` | Change rate control mode |
-| `set-qp-ip-delta <ch> <delta>` | I/P frame QP delta |
-| `set-qp-bounds-per-frame <ch> ...` | Per-frame QP (iMin iMax pMin pMax) |
-| `set-gop-mode <ch> <0\|1\|2>` | GOP mode (default/pyramid/smartP) |
-| `set-rc-options <ch> <bitmask>` | RC options bitmask |
-| `set-max-same-scene <ch> <count>` | Max same-scene count |
-| `set-max-pic-size <ch> <iK> <pK>` | Max I/P frame size (kbits) |
-| `set-color2grey <ch> <0\|1>` | Color to greyscale |
-| `set-mbrc <ch> <0\|1>` | Macroblock rate control |
-| `set-entropy-mode <ch> <0\|1>` | CAVLC/CABAC |
-| `set-resize-mode <ch> <0\|1>` | Resize mode |
-| `set-stream-buf-size <ch> <bytes>` | Stream buffer size |
-| `set-qpg-mode <ch> <mode>` | QPG mode |
+| `get-bitrate <ch>` | Show target + average bitrate |
+| `get-fps <ch>` | Show frame rate |
+| `get-gop <ch>` | Show GOP length |
+| `get-qp-bounds <ch>` | Show QP range |
+| `get-rc-mode <ch>` | Show rate control mode |
+| `request-idr [ch]` | Request keyframe |
+
+Table-driven encoder params (14 params, SoC-dependent):
+
+| Command | Description |
+|---------|-------------|
+| `enc-list [ch]` | List all params with support status (with values if channel given) |
+| `enc-set <ch> <param> <value>` | Set encoder param by name |
+| `enc-get <ch> <param>` | Get encoder param by name |
+
+Params: `qp`, `qp_ip_delta`, `qp_pb_delta`, `max_psnr`, `gop_mode`,
+`rc_options`, `max_same_scene`, `qpg_mode`, `entropy_mode`,
+`stream_buf_size`, `jpeg_qp`, `color2grey`, `mbrc`, `resize_mode`.
+NULL HAL function pointer = not supported on this SoC.
+
+Struct commands (multi-field args, explicit handlers):
+
+| Command | Description |
+|---------|-------------|
 | `set-h264-trans <ch> <offset>` | H.264 chroma QP offset |
 | `set-h265-trans <ch> <cr> <cb>` | H.265 chroma QP offsets |
 | `set-roi <ch> <idx> ...` | ROI region (en x y w h qp) |
@@ -707,15 +720,22 @@ These daemons control hardware peripherals and do not process frame data.
 | `set-enc-denoise <ch> ...` | Encoder denoise (en type iQP pQP) |
 | `set-gdr <ch> <en> <cycle>` | Gradual decoder refresh |
 | `set-enc-crop <ch> <en> <x y w h>` | Encoder crop |
-| `set-jpeg-qp <ch> <qp>` | JPEG QP |
+| `set-qp-bounds-per-frame <ch> ...` | Per-frame QP (iMin iMax pMin pMax) |
+| `set-max-pic-size <ch> <iK> <pK>` | Max I/P frame size (kbits) |
+| `get-*` variants | Getter for each struct setter above |
+| `get-enc-caps` | Show encoder capabilities |
+
+Pipeline commands:
+
+| Command | Description |
+|---------|-------------|
 | `set-codec <ch> <h264\|h265>` | Change codec (requires restart) |
 | `set-resolution <ch> <w> <h>` | Change resolution (requires restart) |
+| `stream-stop <ch>` | Stop stream pipeline |
+| `stream-start <ch>` | Start stopped stream |
 | `stream-restart <ch>` | Restart stream pipeline |
-| `request-idr [ch]` | Request keyframe |
 | `request-pskip <ch>` | Request P-skip |
 | `request-gdr <ch> <frames>` | Request GDR |
-| `get-*` variants | Getter for each setter above |
-| `get-enc-caps` | Show encoder capabilities |
 
 **RVD ISP commands:**
 

@@ -48,8 +48,13 @@ raptor/                  # main repo: all daemons and tools
 ├── rod/                 # OSD daemon (libschrift rendering)
 │   ├── Makefile
 │   ├── rod.h
-│   ├── rod_main.c
-│   └── rod_render.c
+│   ├── rod_main.c       # entry point, rendering, event loop
+│   ├── rod_ctrl.c       # control socket handlers
+│   ├── rod_elem.c       # element registry, font mgmt, SHM lifecycle
+│   ├── rod_config.c     # config loading, OSD section parsing
+│   ├── rod_template.c   # template variable expansion, IP resolution
+│   ├── rod_render.c     # glyph rendering (libschrift)
+│   └── rod_receipt.c    # receipt element (serial/FIFO text overlay)
 ├── ric/                 # IR-cut day/night control
 │   ├── Makefile
 │   ├── ric.h
@@ -88,8 +93,12 @@ raptor/                  # main repo: all daemons and tools
 ├── raptorctl/           # CLI control tool
 │   ├── Makefile
 │   ├── raptorctl.h
-│   ├── raptorctl.c
-│   └── raptorctl_info.c
+│   ├── raptorctl.c          # main, daemons[], privacy handler
+│   ├── raptorctl_dispatch.c # table-driven command dispatch
+│   ├── raptorctl_config.c   # config get/set/save subcommand
+│   ├── raptorctl_ipc.c      # JSON helpers, IPC transport, batch mode
+│   ├── raptorctl_help.c     # help text table, usage display
+│   └── raptorctl_info.c     # status, memory, cpu commands
 ├── ringdump/            # SHM ring debug tool
 │   ├── Makefile
 │   └── ringdump.c
