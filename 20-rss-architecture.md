@@ -1981,6 +1981,23 @@ line boundaries to prevent false matches inside request bodies.
 If credentials are empty, auth is skipped (same backwards-compatible
 logic as RSD).
 
+### 9.3 CORS Policy
+
+All HTTP responses from RHD and RWD include
+`Access-Control-Allow-Origin: *`. This is intentional -- the primary
+consumers of these endpoints are cross-origin by design:
+
+- **RHD**: dashboards, NVRs, and Home Assistant embed camera feeds
+  via `<img>`, `<video>`, or `fetch()` from different origins.
+- **RWD**: WHIP clients (go2rtc, Home Assistant, custom web players)
+  make cross-origin POST requests for SDP offer/answer exchange.
+
+Restricting CORS would break most integrations. Authentication
+protects against unauthorized access regardless of CORS policy --
+the browser sends the request, but the server rejects it without
+valid credentials. HTTPS (enabled by default for RWD, optional
+for RHD) protects credentials in transit.
+
 ---
 
 ## 10. Latency
