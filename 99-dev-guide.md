@@ -261,6 +261,13 @@ Platform capabilities: `12-hal-caps.md`
 
 ## 6. Build and Test
 
+**Every change must build clean, pass all tests, and run clean under
+AddressSanitizer and ThreadSanitizer before committing.** Sanitizer
+warnings are treated as bugs -- do not suppress or ignore them.
+Memory leaks, data races, and undefined behavior are not acceptable
+in production code that runs 24/7 on devices you cannot physically
+access.
+
 ### Standalone Build (no Buildroot)
 
 ```sh
@@ -322,6 +329,20 @@ clang-format -i path/to/changed/files.c
 
 The `.clang-format` in the repo root enforces the project style.
 
+### Pre-Commit Checklist
+
+Before every commit:
+
+1. `clang-format -i` on all changed `.c` files
+2. `./build-standalone.sh t31 --local --static` -- clean build, zero warnings
+3. `cd tests && make test` -- all unit tests pass
+4. `./build-asan.sh` -- AddressSanitizer clean (no leaks, no OOB, no UAF)
+5. `./build-asan.sh tsan` -- ThreadSanitizer clean (no data races)
+6. On-device smoke test if touching daemon logic (NFS mount, run binary, exercise via raptorctl)
+
+If any step fails, fix before committing. Do not commit with known
+sanitizer warnings or test failures.
+
 ---
 
 ## 7. Commit and Push Guidelines
@@ -330,7 +351,7 @@ The `.clang-format` in the repo root enforces the project style.
   `rvd: add stream-stop and stream-start IPC commands`
 - **Prefix with the component:** `rvd:`, `rad:`, `raptorctl:`,
   `hal:`, `rsd:`, `build:`, `tests:`, etc.
-- **No no signatures.** Message only.
+- **No signatures.** Just a clear commit message.
 - **Don't push without explicit instruction.** Build and test
   locally first. Confirm with the maintainer before pushing.
 - **Don't create releases** without explicit instruction.
