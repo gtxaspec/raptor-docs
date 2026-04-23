@@ -173,6 +173,46 @@ enforces this -- **always run `clang-format -i` before committing**.
 - **Don't mask errors.** If a HAL call fails, log it and propagate.
   Don't silently continue with corrupt state.
 
+### Protocol Compliance
+
+Raptor implements real-world streaming protocols. Where an RFC or
+standard defines the behavior, **follow it** -- don't invent ad-hoc
+alternatives. Clients, NVRs, and browsers expect standards-compliant
+implementations. A creative shortcut that works with one client will
+break with the next.
+
+**Applicable standards by component:**
+
+| Component | Standards |
+|-----------|-----------|
+| compy (RTSP core) | RFC 2326 (RTSP/1.0), RFC 7826 (RTSP/2.0) |
+| compy (RTP/RTCP) | RFC 3550 (RTP), RFC 4585 (RTCP FB), RFC 5104 (codec control) |
+| compy (SRTP) | RFC 3711 (SRTP/SRTCP) |
+| compy (SDP) | RFC 4566 (SDP), RFC 3264 (offer/answer) |
+| compy (payloads) | RFC 6184 (H.264), RFC 7798 (H.265), RFC 3640 (AAC), RFC 7587 (Opus) |
+| RWD (WebRTC) | RFC 8445 (ICE), RFC 8489 (STUN), RFC 5764 (DTLS-SRTP), WHIP (draft-ietf-wish-whip) |
+| RMR (recording) | ISO 14496-12 (ISOBMFF/fMP4) |
+
+**Rules:**
+
+- **Verify RFC compliance when touching protocol code.** Before
+  modifying any code that implements RFC behavior, read the
+  relevant sections of the RFC and confirm your changes conform.
+  Don't assume the existing code is correct -- verify both.
+- **Cite the RFC in commit messages** when implementing or fixing
+  protocol behavior. Example: `compy: fix RTCP SR timestamp per
+  RFC 3550 Section 6.4.1`.
+- **Don't subset silently.** If you intentionally skip a MUST or
+  SHOULD from an RFC, document it in the code with the specific
+  section number and the reason (hardware limitation, scope, etc.).
+- **Use RFC terminology.** MUST, SHOULD, MAY have precise meanings
+  (RFC 2119). Match the RFC's field names and state machine names
+  in code where practical -- it makes cross-referencing trivial.
+- **Test against real clients.** VLC, ffplay, and browser WebRTC
+  are the minimum. NVR compatibility (Blue Iris, Frigate) matters
+  for RTSP. Don't assume your own raptorctl exercises the same
+  code paths a third-party client would.
+
 ---
 
 ## 5. Architecture Patterns
