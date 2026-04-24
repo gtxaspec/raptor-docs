@@ -312,10 +312,12 @@ access.
 ### Standalone Build (no Buildroot)
 
 ```sh
+make distclean
 ./build-standalone.sh t31 --local --static
 ```
 
-Downloads the toolchain and all dependencies, builds everything.
+`make distclean` removes stale build artifacts. The build script
+downloads the toolchain and all dependencies, then builds everything.
 Use `--local` to use sibling repo checkouts instead of cloning.
 Output binaries go to `build/`.
 
