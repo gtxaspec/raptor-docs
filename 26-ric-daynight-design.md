@@ -278,10 +278,18 @@ day detection sensitivity. Lower values detect day sooner.
 
 ### Platform Support
 
-Photo mode requires `IMP_ISP_Tuning_GetEVAttr` and
-`IMP_ISP_Tuning_GetWB_Statis`, available on T20, T21, T23, T30,
-and T31. On T32/T40/T41 (Gen3/IMPVI), `GetWB_Statis` is not
-supported — use `trigger = luma` instead.
+Photo mode is supported on all Ingenic SoCs with ISP tuning:
+
+- **T20, T21, T23, T30, T31** (Gen1/Gen2): uses
+  `IMP_ISP_Tuning_GetEVAttr` for EV and
+  `IMP_ISP_Tuning_GetWB_Statis` for R/B gains.
+
+- **T32, T33, T40, T41** (Gen3/IMPVI): uses
+  `IMP_ISP_Tuning_GetAeExprInfo` for EV (`.ExposureValue` field)
+  and `IMP_ISP_Tuning_GetAwbGlobalStatistics` for R/B gains
+  (`.statis_gol_gain.rgain/.bgain`).
+
+A1 has no ISP and does not support photo mode.
 
 ---
 
