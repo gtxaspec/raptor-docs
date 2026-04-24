@@ -525,12 +525,27 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Why separate**: USB gadget state is independent from network
   streaming. Isolating webcam keeps the RTSP/WebRTC path unaffected.
 
-#### RSP -- Stream Push *(planned, not yet implemented)*
+#### RSP -- Stream Push
 
-- **Role**: Push RTMP/RTSP streams to an external server (YouTube,
-  cloud NVR, custom endpoint).
+- **Role**: Push RTMP/RTMPS streams to an external server (YouTube
+  Live, Twitch, Facebook Live, custom RTMP endpoints).
 - **Inputs**: Main video ring, audio ring.
-- **Dependencies**: librss_ipc, libcurl or custom RTMP client.
+- **Dependencies**: librss_ipc, rss_tls (client-side mbedTLS for
+  RTMPS), libfaac (audio transcode to AAC).
+- **Protocol**: Custom RTMP client implementation -- AMF0 encoding,
+  chunk stream framing, FLV tag construction. No external RTMP library.
+  H.264 via standard FLV video tags, H.265 via Enhanced RTMP FourCC
+  (`hvc1`). RTMPS wraps the connection in TLS via `rss_tls_connect()`.
+- **Audio**: AAC passthrough when the ring produces AAC. For other
+  codecs (G.711 µ/A-law, L16, Opus), decodes to PCM and re-encodes
+  to AAC-LC via faac with 1024-sample accumulation.
+- **Ring access**: Zero-copy `rss_ring_peek()` in refmode, falls back
+  to `rss_ring_read()` in embedded mode. AVCC conversion always
+  requires a copy (start code → length prefix rewrite).
+- **Reconnection**: Auto-reconnects on TCP/TLS/RTMP failure with
+  configurable backoff (`reconnect_ms`, default 5000, clamped 1-60s).
+- **Config**: `[push]` section -- `url`, `stream`, `audio`, `autostart`,
+  `reconnect_ms`. Control via `raptorctl rsp start/stop/status`.
 - **Why separate**: Network push is inherently unreliable (upstream
   bandwidth, server availability). Isolating it prevents network stalls
   from affecting local recording or RTSP serving.

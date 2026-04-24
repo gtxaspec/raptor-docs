@@ -41,7 +41,7 @@ cd raptor-common/tests && make test
 cd raptor-ipc/tests && make test
 ```
 
-### 1.3 raptor (97 tests, 6 suites)
+### 1.3 raptor (144 tests, 13 suites)
 
 | Suite | File | Tests | Coverage |
 |-------|------|------:|----------|
@@ -51,6 +51,13 @@ cd raptor-ipc/tests && make test
 | sdp | test_sdp.c | 17 | SDP offer parsing, answer generation, ICE candidate extraction, codec negotiation |
 | codec | test_codec.c | 28 | Codec detection, parameter set parsing, frame type identification |
 | ring | test_ring.c | 14 | Ring buffer create/open, publish/read, overflow, IDR request, demand signaling |
+| rsp_url | test_rsp.c | 8 | RTMP/RTMPS URL parsing, port detection, edge cases (missing scheme/app/key, complex keys) |
+| rsp_amf0 | test_rsp.c | 8 | AMF0 number/string/null/object encoding, property names, connect command structure |
+| rsp_chunk | test_rsp.c | 5 | Big-endian helpers, chunk header layout, extended timestamps, fmt=3 continuation, protocol constants |
+| rsp_flv | test_rsp.c | 10 | H.264 sequence header (AVCDecoderConfigurationRecord), H.264 keyframe/inter tags, H.265 Enhanced RTMP FourCC, AAC sequence header, AudioSpecificConfig at 16/48kHz, FLV constants |
+| rsp_audio | test_rsp.c | 6 | G.711 µ-law decode (minimum step, full range, symmetry), A-law decode (silence, full range), L16 byte-swap |
+| rsp_annexb | test_rsp.c | 4 | Start code detection (3-byte, 4-byte, none, multiple) |
+| rsp_state | test_rsp.c | 6 | RTMP state machine: set_chunk_size (incl. MSB mask), _result advancing connect/createStream, onStatus → publishing, _error → error state |
 
 ```
 cd raptor/tests && make test

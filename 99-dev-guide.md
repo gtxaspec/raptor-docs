@@ -66,6 +66,7 @@ rmd/   -- Motion detection state machine
 rwd/   -- WebRTC server (WHIP signaling, DTLS-SRTP)
 rwc/   -- USB webcam gadget (UVC+UAC)
 rfs/   -- File source (MP4/Annex B playback into rings)
+rsp/   -- RTMP/RTMPS stream push (YouTube, Twitch)
 raptorctl/  -- CLI control tool
 ringdump/   -- Ring buffer debug/dump tool
 rac/        -- Audio codec test tool
