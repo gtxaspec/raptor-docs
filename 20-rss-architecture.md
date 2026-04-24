@@ -210,9 +210,19 @@ ring buffers. Exactly one instance of each runs per camera.
   All SDK access goes through the HAL vtable.
 - **Codecs**: PCMU/PCMA (G.711), L16 (uncompressed PCM), AAC-LC (via
   faac, compile with `AAC=1`), Opus (via libopus, compile with `OPUS=1`).
-- **Audio effects**: Noise suppression, high-pass filter, and AGC via
-  `libaudioProcess.so`. Compile-time flag `AUDIO_EFFECTS=1`. Runtime
-  toggle via `raptorctl rad set-ns/set-hpf/set-agc`.
+- **Audio effects**: Noise suppression, high-pass filter, AGC, and AEC
+  via `libaudioProcess.so`. Compile-time flag `AUDIO_EFFECTS=1`. Runtime
+  toggle via `raptorctl rad set-ns/set-hpf/set-agc/set-aec`.
+- **Acoustic echo cancellation (AEC)**: When `aec_enabled=true` and
+  `ao_enabled=true`, RAD enables the SDK's WebRTC-based AEC engine.
+  AEC links the AI (mic) device to the AO (speaker) device and
+  subtracts the speaker output from the mic input in real-time.
+  Subsequent `audio_read_frame()` calls return echo-cancelled PCM
+  transparently -- no changes to the capture loop. Tuning is via
+  `/etc/webrtc_profile.ini` (configurable path via `aec_profile_path`);
+  `delay_ms` is the critical parameter (acoustic delay between speaker
+  output and mic recapture). AEC internally includes NS/AGC/HPF.
+  Available on all T-series SoCs; profile path API on T23+.
 - **Audio output**: When `ao_enabled=true`, RAD initializes the AO device
   and spawns an AO playback thread. The thread reads PCM16 from a
   "speaker" SHM ring (created by `rac play` or RSD backchannel) and
@@ -766,6 +776,7 @@ Pipeline commands:
 | `set-volume <val>` | Input volume |
 | `set-gain <val>` | Input gain |
 | `set-alc-gain <0-7>` | ALC gain (T21/T31 only) |
+| `set-aec <0\|1>` | Acoustic echo cancellation (requires ao_enabled) |
 | `set-ns <0\|1> [0-3]` | Noise suppression level |
 | `set-hpf <0\|1>` | High-pass filter |
 | `set-agc <0\|1> [target] [comp]` | Automatic gain control |
