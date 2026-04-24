@@ -1659,9 +1659,10 @@ Key optimizations for 32MB:
 
 ## 7. Multi-Core Pinning
 
-### 7.1 T40/T41 Dual-Core Affinity
+### 7.1 T40/T41/A1 Dual-Core Affinity
 
-The T40 and T41 have dual XBurst MIPS cores. CPU affinity assignment:
+The T40, T41, and A1 have dual XBurst 2 MIPS cores. CPU affinity
+assignment:
 
 ```
 Core 0 (CPU0):
@@ -1671,10 +1672,15 @@ Core 0 (CPU0):
 
 Core 1 (CPU1):
   - RSD (RTSP serving, RTP packetization, network I/O)
-  - RMR (recording, file I/O)
-  - ROD (text rendering)
+  - RWD (WebRTC, DTLS-SRTP, WHIP signaling)
   - RAD (audio capture + encoding)
-  - RIC, RMC (control daemons)
+  - RHD (HTTP server, snapshots, MJPEG)
+  - ROD (OSD text rendering)
+  - RMR (motion-triggered recording, file I/O)
+  - RMD (motion detection state machine)
+  - RWC (USB webcam gadget)
+  - RFS (file source playback)
+  - RIC (IR-cut and day/night control)
 ```
 
 Rationale: RVD is the latency-critical path. Pinning it to Core 0
@@ -1685,20 +1691,16 @@ usage is modest and their latency requirements are relaxed.
 
 ### 7.2 Implementation
 
-Each daemon sets CPU affinity at startup using `sched_setaffinity()`:
+Scheduling is applied automatically by `rss_daemon_init()` in
+`raptor-common/src/rss_daemon.c`. Each daemon reads `cpu_affinity`
+and `sched_priority` from its own named section in the config file
+(e.g. `[rvd]`, `[rsd]`). No per-daemon wiring is needed.
 
-```c
-#include <sched.h>
+On single-core SoCs (T20, T21, T23, T30, T31, T32, T33),
+`cpu_affinity` is silently ignored. Invalid CPU numbers are logged
+as a warning.
 
-static void pin_to_cpu(int cpu) {
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    CPU_SET(cpu, &set);
-    sched_setaffinity(0, sizeof(set), &set);
-}
-```
-
-The target CPU is read from the config file (`/etc/raptor.conf`):
+Config file (`/etc/raptor.conf`):
 
 ```ini
 [rvd]
@@ -1713,18 +1715,31 @@ sched_priority = 30
 cpu_affinity = 1
 sched_priority = 40
 
+[rwd]
+cpu_affinity = 1
+sched_priority = 30
+
+[rhd]
+cpu_affinity = 1
+
 [rod]
 cpu_affinity = 1
-sched_priority = 20
+
+[rmr]
+cpu_affinity = 1
+
+[rmd]
+cpu_affinity = 1
+
+[rwc]
+cpu_affinity = 1
+
+[rfs]
+cpu_affinity = 1
 
 [ric]
 cpu_affinity = 1
-sched_priority = 10
 ```
-
-On single-core SoCs (T20, T21, T23, T30, T31), `cpu_affinity` is
-ignored (all daemons run on CPU0). The config parser silently skips
-invalid CPU numbers.
 
 ### 7.3 Scheduling Policy
 
@@ -1732,10 +1747,9 @@ invalid CPU numbers.
   other daemons during frame processing
 - RAD: `SCHED_FIFO` priority 40 -- audio frame deadlines are real-time
 - RSD: `SCHED_FIFO` priority 30 -- RTSP packet deadlines matter for jitter
-- ROD: `SCHED_OTHER` (normal) with nice -5 -- OSD rendering is periodic
-  but not deadline-critical
-- RIC/RMC: `SCHED_OTHER` (normal) -- control loops are 1Hz or event-driven
-- RMR/RSP: `SCHED_OTHER` (normal) -- file/network I/O is buffered
+- RWD: `SCHED_FIFO` priority 30 -- WebRTC media deadlines match RTSP
+- ROD/RHD/RMR/RMD/RWC/RFS/RIC: `SCHED_OTHER` (normal) -- periodic or
+  event-driven workloads with relaxed latency requirements
 
 ---
 
