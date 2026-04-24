@@ -203,10 +203,16 @@ ring buffers. Exactly one instance of each runs per camera.
 - **Role**: Initialize audio input and output through the HAL, read PCM
   frames, encode (PCMU, PCMA, L16, AAC, or Opus), publish to audio SHM
   ring, and play back received audio through the speaker.
+- **Audio input**: Supports both analog mic (AMIC, `input=amic`,
+  default) and digital mic array (DMIC, `input=dmic`). The HAL
+  dispatches internally via `rss_audio_config_t.input_type` -- RAD
+  uses the same `audio_init()`/`audio_read_frame()` ops for both.
+  DMIC is available on T30/T31/T32/T33/T40/T41. DMIC config: `dmic_count`
+  (1/2/4 mics), `dmic_aec_id` (which mic for AEC). DMIC frames are
+  preallocated in the HAL context (zero per-frame allocation).
 - **HAL dependency**: Calls `audio_init()`, `audio_read_frame()`,
   `audio_release_frame()` for input. Calls `ao_init()`, `ao_send_frame()`
-  for output. Optionally enables NS/HPF/AGC audio effects via HAL
-  (`audio_enable_ns()`, `audio_enable_hpf()`, `audio_enable_agc()`).
+  for output. Optionally enables NS/HPF/AGC/AEC audio effects via HAL.
   All SDK access goes through the HAL vtable.
 - **Codecs**: PCMU/PCMA (G.711), L16 (uncompressed PCM), AAC-LC (via
   faac, compile with `AAC=1`), Opus (via libopus, compile with `OPUS=1`).
