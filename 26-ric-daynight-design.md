@@ -122,7 +122,7 @@ IR LED: HIGH = on, LOW = off. Controlled via sysfs (`/sys/class/gpio`).
 [ircut]
 enabled = true
 mode = auto                   # auto, day, or night
-trigger = luma                # luma (sensor-independent) or gain (legacy)
+trigger = luma                # luma, gain, adc, or photo
 night_luma = 20               # ae_luma below this → night (0-255)
 night_gain = 80000            # force night when total_gain exceeds this (regardless of luma)
 day_gain_pct = 25             # night→day: gain below this % of baseline
@@ -133,6 +133,14 @@ poll_interval_ms = 1000       # exposure poll interval
 gpio_ircut = -1               # -1 = auto from /etc/thingino.json
 gpio_ircut2 = -1              # second pin for dual motor mode
 gpio_irled = -1               # IR LED pin
+
+# Photo trigger thresholds (trigger=photo only)
+photo_ev_day = 188000         # EV above this starts day detection
+photo_ev_1lux = 10000         # EV below this forces night after drift
+photo_ev_3lux = 3000          # 3-lux night counter threshold
+photo_ev_6lux = 1200          # 6-lux night counter threshold
+photo_rgain_rec = 250         # R-gain baseline for spectral shift detection
+photo_bgain_rec = 187         # B-gain baseline for spectral shift detection
 ```
 
 ### Runtime Control
@@ -167,6 +175,116 @@ If unavailable, RIC falls back to luma mode with a warning. The same
 
 ---
 
+## Photo Trigger Mode
+
+Setting `trigger = photo` enables a multi-stage detection algorithm
+using ISP EV value and AWB white balance R/B gain statistics.
+
+Photo mode uses its own state machine independent of the luma/gain
+cooldown and hysteresis counters.
+
+### Inputs
+
+- **EV**: exposure value from `IMP_ISP_Tuning_GetEVAttr` (T20-T31).
+  Range is sensor-dependent (0 to ~400K). Unlike `ae_luma` (0-255),
+  EV preserves full dynamic range for threshold comparisons.
+
+- **R-gain / B-gain**: AWB statistics from
+  `IMP_ISP_Tuning_GetWB_Statis` (T20-T31). Under IR illumination
+  the spectral composition shifts, causing R/B gains to deviate from
+  their daylight baseline. This spectral signature distinguishes
+  genuine darkness from IR-contaminated scenes.
+
+### State Machine
+
+```
+                    EV dark + R/B gain shift (23+ polls)
+                    OR fixed-EV drift (10× at 200-poll intervals)
+  [NIGHT_DETECT] ──────────────────────────────────────→ [DAY_DETECT]
+        ↑                                                     │
+        │  interfere timeout (9000 polls)                     │
+        │  OR genuine darkness (3× fall)                      │
+        │                                                     │
+  [INTERFERE] ←── EV ratio 0.87-1.13 of ref (3× confirm) ───┘
+        │                                                     ↑
+        │  false trigger (3× rise > 1.12×) → revert night    │
+        └─────────────────────────────────────────────────────┘
+```
+
+### Night Detection (NIGHT_DETECT phase)
+
+Runs when in day mode. Evaluates two independent trigger paths:
+
+1. **R-gain path**: EV below `photo_ev_3lux` for 23+ consecutive
+   polls AND R-gain deviates from `photo_rgain_rec` by ≥15 and ≥9
+   for 3+ consecutive polls each.
+
+2. **B-gain path**: EV below `photo_ev_6lux` for 23+ consecutive
+   polls AND B-gain deviates from `photo_bgain_rec` by ≥10 and ≥7
+   for 7+ consecutive polls each.
+
+Either path firing triggers the switch to night mode.
+
+**Fixed-EV fallback**: if neither path fires but EV stays below
+`photo_ev_1lux` for 10 consecutive checks (sampled every 200 polls),
+night mode is forced. Handles sensors whose gain characteristics
+don't produce sufficient R/B deviation.
+
+### Day Detection (DAY_DETECT phase)
+
+Runs when in night mode. Collects 10 EV samples into a ring buffer
+when EV exceeds `photo_ev_day`. Compares the last sample against a
+reference using ratio thresholds:
+
+- EV > reference × 0.87: sample is above noise floor, continue
+- EV < reference × 1.13: moderate day signal, increment trigger
+  counter. After 3 consecutive triggers → switch to day.
+
+A separate fixed-drift detector (8-sample baseline, 0.70 ratio
+threshold) catches slow transitions where EV gradually drops below
+the night baseline.
+
+### Anti-Interference (INTERFERE phase)
+
+Runs after a night→day transition. Monitors for false triggers
+caused by transient light sources (headlights, flashlights):
+
+- Collects an 8-sample EV baseline, validates stability (within
+  0.92-1.08 ratio of first to last sample).
+- Watches for EV rising above reference × 1.12 — indicates
+  transient bright source. Three consecutive rises revert to
+  night mode.
+- EV falling below reference × 0.88 for three consecutive polls
+  indicates genuine darkness — transitions to NIGHT_DETECT.
+- Times out after 9000 polls (~2.5 hours at 1s interval) and
+  resets to NIGHT_DETECT.
+
+### Sensor Thresholds
+
+Default thresholds match the gc2053/jxf37 profile (4 of 5 sensors
+in the default config). Known per-sensor values:
+
+| Sensor | ev_day  | ev_1lux | ev_3lux | ev_6lux | rgain_rec | bgain_rec |
+|--------|---------|---------|---------|---------|-----------|-----------|
+| sc2310 | 48926   | 10000   | 2418    | 1000    | 262       | 209       |
+| gc2053 | 188000  | 10000   | 3000    | 1200    | 250       | 187       |
+| jxf37  | 188000  | 10000   | 3000    | 1200    | 250       | 187       |
+| gc4653 | 35000   | 10000   | 3000    | 1200    | 250       | 187       |
+| jxf23  | 35000   | 10000   | 3000    | 1200    | 250       | 187       |
+
+For sensors not in this table, the defaults (gc2053 profile) are a
+reasonable starting point. Tune `photo_ev_day` first — it controls
+day detection sensitivity. Lower values detect day sooner.
+
+### Platform Support
+
+Photo mode requires `IMP_ISP_Tuning_GetEVAttr` and
+`IMP_ISP_Tuning_GetWB_Statis`, available on T20, T21, T23, T30,
+and T31. On T32/T40/T41 (Gen3/IMPVI), `GetWB_Statis` is not
+supported — use `trigger = luma` instead.
+
+---
+
 ## Legacy Gain Mode
 
 Setting `trigger = gain` uses fixed `total_gain` thresholds instead
@@ -178,5 +296,6 @@ tuning per device. Not recommended for new deployments.
 ## Files
 
 - `ric/ric_main.c` — config loading, thingino.json GPIO discovery, main loop
-- `ric/ric_daynight.c` — GPIO control, mode switching, hybrid detection algorithm
-- `ric/ric.h` — state and config structures
+- `ric/ric_daynight.c` — GPIO control, mode switching, detection dispatch
+- `ric/ric_photo.c` — multi-stage EV + AWB photo detection algorithm
+- `ric/ric.h` — state, config, and photo mode structures
