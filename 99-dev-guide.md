@@ -336,20 +336,67 @@ link time without the Ingenic SDK libs. Compilation succeeding
 ### ASAN Build (x86, mock HAL)
 
 ```sh
-./build-asan.sh        # AddressSanitizer
+./build-asan.sh        # AddressSanitizer + UBSan
 ./build-asan.sh tsan   # ThreadSanitizer
 ```
 
-Builds all daemons for x86 with a mock HAL. Runs the full test
-suite under sanitizers.
+Builds all 14 daemons + tools for x86 with a mock HAL (`tests/mock_hal.c`).
+Output goes to `asan-out/`. RVD and RAD use the mock HAL; all other
+daemons build natively (no HAL dependency).
 
 ### Running Tests
 
+**Full suite (recommended):**
+
 ```sh
-cd tests && make test           # raptor unit tests (97 tests)
-cd ../raptor-ipc/tests && make test   # IPC tests (25 tests)
-cd ../raptor-common/tests && make test  # common tests (62 tests)
+./tests/test-all.sh                   # quick pass (~2 min)
+./tests/test-all.sh --soak 300        # with 5-min leak soak
+./tests/test-all.sh --tsan            # ThreadSanitizer mode
+./tests/test-all.sh --tsan --soak 300 # full TSAN + soak
 ```
+
+Runs all four stages: build, unit tests, integration tests,
+leak/race detection. Fails fast if any stage fails.
+
+**Individual test suites:**
+
+```sh
+# Unit tests (187 tests across 14 suites, ASAN)
+cd tests && make test
+
+# Integration tests (46 tests — raptorctl, HTTP, RTSP, multi-client)
+./tests/test-integration.sh
+
+# Leak detection (lifecycle soak under LeakSanitizer)
+./tests/test-leak.sh
+./tests/test-leak.sh --duration 300        # 5-min soak
+./tests/test-leak.sh --tsan                # data race detection
+./tests/test-leak.sh --tsan --duration 300 # TSAN + soak
+
+# Sibling repo tests
+cd raptor-ipc/tests && make test      # IPC tests (25 tests)
+cd raptor-common/tests && make test   # common tests (62 tests)
+```
+
+**Fuzz targets (requires clang):**
+
+```sh
+make -C fuzz                     # build all fuzzers
+./fuzz/fuzz_stun corpus/stun/    # STUN parser (calls production rwd_ice_process)
+./fuzz/fuzz_sdp corpus/sdp/      # SDP parser
+./fuzz/fuzz_http_auth corpus/auth/  # HTTP auth
+```
+
+### CI
+
+GitHub Actions runs on every push (`tests.yml`):
+
+- **asan job**: full suite + 5-min soak under AddressSanitizer
+- **tsan job**: full suite + 5-min soak under ThreadSanitizer
+
+Both jobs build from scratch, run 187 unit tests + 46 integration
+tests + lifecycle soak (concurrent clients, ring reconnect, clean
+shutdown). Logs are uploaded as artifacts on failure.
 
 ### On-Device Testing via NFS
 
@@ -378,10 +425,8 @@ Before every commit:
 
 1. `clang-format -i` on all changed `.c` files
 2. `./build-standalone.sh t31 --local --static` -- clean build, zero warnings
-3. `cd tests && make test` -- all unit tests pass
-4. `./build-asan.sh` -- AddressSanitizer clean (no leaks, no OOB, no UAF)
-5. `./build-asan.sh tsan` -- ThreadSanitizer clean (no data races)
-6. On-device smoke test if touching daemon logic (NFS mount, run binary, exercise via raptorctl)
+3. `./tests/test-all.sh` -- unit + integration + leak check pass
+4. On-device smoke test if touching daemon logic (NFS mount, run binary, exercise via raptorctl)
 
 If any step fails, fix before committing. Do not commit with known
 sanitizer warnings or test failures.
