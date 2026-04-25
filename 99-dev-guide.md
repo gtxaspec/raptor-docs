@@ -389,7 +389,7 @@ make -C fuzz                     # build all fuzzers
 
 ### CI
 
-GitHub Actions runs on every push (`tests.yml`):
+GitHub Actions (`tests.yml`, manual dispatch):
 
 - **asan job**: full suite + 5-min soak under AddressSanitizer
 - **tsan job**: full suite + 5-min soak under ThreadSanitizer
