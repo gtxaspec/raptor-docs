@@ -1165,6 +1165,26 @@ int rss_ring_publish_ref(rss_ring_t *ring, uint32_t data_offset,
                          uint8_t buf_idx);
 ```
 
+**Known limitation: rmem refmode + JPEG bufshare**
+
+On Allegro-based SoCs (T31, T40, T41), rmem refmode and JPEG bufshare
+are incompatible. When bufshare is enabled, the JPEG encoder writes to
+the same rmem buffer pool as the H.264 encoder. Between H.264 publishes,
+the JPEG encoder can overwrite an H.264 buffer with JPEG data. The
+`buf_gen` validation cannot detect this because it only tracks publish
+events (inside `rss_ring_publish_ref`), not raw encoder writes (which
+happen in hardware DMA before RVD polls).
+
+The result: consumers reading from the H.264 ring occasionally receive
+JPEG data at an offset that was valid H.264 at publish time. High-latency
+consumers (RWC/UVC) are most affected; low-latency consumers (RSD/RTSP)
+rarely hit the race but are not immune.
+
+**Workaround:** Set `bufshare = false` in `[jpeg]` when `[ring] refmode = true`
+on T31/T40/T41. This gives the JPEG encoder its own buffer pool (~500KB
+extra rmem) and eliminates the collision. SHM-injection refmode (T10-T30,
+T32, T33) is not affected because each channel gets its own SHM region.
+
 ### 2.2 OSD SHM Double-Buffer
 
 Used by ROD to pass rendered BGRA bitmaps to RVD without frame drops.
