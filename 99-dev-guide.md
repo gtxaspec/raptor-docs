@@ -300,6 +300,13 @@ Consumer daemons follow a template:
 
 Details: `20-rss-architecture.md` sections 3-5.
 
+**Logging:** raptor-ipc has its own log macros (`RSS_IPC_ERROR`,
+`RSS_IPC_WARN`, `RSS_IPC_INFO`, `RSS_IPC_DEBUG`) defined in
+`rss_ipc.h`. Use these instead of `printf`/`fprintf` in IPC code.
+`rss_daemon_init()` automatically wires them through the daemon's
+`rss_log()` via a weak symbol -- no per-daemon setup needed.
+Standalone tools and tests get stderr fallback.
+
 ### HAL Layer
 
 The HAL wraps Ingenic's `libimp.so` SDK with a clean C API. It
