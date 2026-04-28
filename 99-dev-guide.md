@@ -57,6 +57,7 @@ Each daemon lives in its own subdirectory under `raptor/`:
 ```
 rvd/   -- Video pipeline (HAL owner, encoder, framesource, IVS, OSD)
 rsd/   -- RTSP server (ring consumer, compy-based)
+rsd-555/ -- RTSP server (ring consumer, live555-based, static link)
 rad/   -- Audio capture and encoding
 rhd/   -- HTTP server (snapshots, MJPEG, audio streaming)
 rod/   -- OSD rendering (libschrift text, detection boxes)
@@ -73,7 +74,9 @@ rac/        -- Audio codec test tool
 ```
 
 Only RVD and RAD link against the HAL. All other daemons are pure
-ring consumers or control-socket clients.
+ring consumers or control-socket clients. RSD and RSD-555 are
+alternative RTSP backends reading the same rings -- RSD uses compy
+(C, custom RTP), RSD-555 uses live555 (C++, statically linked).
 
 ---
 
@@ -325,8 +328,8 @@ Output binaries go to `build/`.
 
 ```sh
 # Using the standalone deps
-XB2=.deps/toolchain/bin/mipsel-linux-
-make PLATFORM=T31 CROSS_COMPILE=$XB2 raptorctl rvd rsd
+XB=.deps/toolchain/bin/mipsel-linux-
+make PLATFORM=T31 CROSS_COMPILE=$XB raptorctl rvd rsd
 ```
 
 Note: daemon binaries that link the HAL (rvd, rad) will fail at
