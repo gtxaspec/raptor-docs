@@ -196,6 +196,22 @@ break with the next.
 | compy (payloads) | RFC 6184 (H.264), RFC 7798 (H.265), RFC 3640 (AAC), RFC 7587 (Opus) |
 | RWD (WebRTC) | RFC 8445 (ICE), RFC 8489 (STUN), RFC 5764 (DTLS-SRTP), WHIP (draft-ietf-wish-whip) |
 | RMR (recording) | ISO 14496-12 (ISOBMFF/fMP4) |
+| RSD / RSD-555 (RTSP) | RFC 2326 (RTSP/1.0), RFC 3550 (RTP §5.1), RFC 4566 (SDP) |
+
+**Compliance items enforced across RSD, RSD-555, and compy:**
+
+- **Random initial RTP seq and timestamp** (RFC 3550 §5.1): both
+  compy and RSD use `/dev/urandom` for initial sequence numbers
+  and RTP-Info `rtptime` values. Zero-based values cause client
+  calibration failures (e.g., mpv "No video PTS").
+- **SDP `o=` origin** (RFC 4566 §5.2): session ID from monotonic
+  clock, server IP from `getsockname`. Not `0 0 ... 0.0.0.0`.
+- **SDP `b=AS:`** (RFC 4566 §5.8): per-media bandwidth hints.
+- **SDP direction** (RFC 4566 §6): streaming server sends, not
+  receives. Do not use `a=recvonly` (incorrect for a camera).
+- **RTP-Info URL** (RFC 2326 §12.33): strip credentials from the
+  URL -- ffmpeg strips them internally and fails to match if
+  they're present.
 
 **Rules:**
 
