@@ -10,7 +10,7 @@ docs in this repo.
 ## 1. What Raptor Is
 
 RSS is an embedded streaming platform for Ingenic MIPS IP cameras
-(T20, T21, T23, T30, T31, T32, T40, T41, and A1). It replaces a
+(T20, T21, T23, T30, T31, T32, T33, T40, T41, and A1). It replaces a
 monolithic streamer with isolated single-purpose daemons communicating
 via shared memory rings and Unix control sockets. On SoCs without an
 ISP (A1), RFS acts as the video source instead of RVD.
@@ -70,7 +70,7 @@ rfs/   -- File source (MP4/Annex B playback into rings)
 rsp/   -- RTMP/RTMPS stream push (YouTube, Twitch)
 raptorctl/  -- CLI control tool
 ringdump/   -- Ring buffer debug/dump tool
-rac/        -- Audio codec test tool
+rac/        -- Audio playback and recording tool
 ```
 
 Only RVD and RAD link against the HAL. All other daemons are pure
@@ -528,6 +528,7 @@ sanitizer warnings or test failures.
 | System architecture, daemon roles, IPC | `20-rss-architecture.md` |
 | Build system, repo layout, Buildroot | `21-rss-build.md` |
 | Test suites, ASAN, integration tests | `22-rss-testing.md` |
+| Configuration reference (all options) | `23-rss-config.md` |
 | HAL API (all ops, all SoCs) | `10-hal-api.md` |
 | HAL internals and porting | `11-hal-internals.md` |
 | SoC capabilities matrix | `12-hal-caps.md` |
