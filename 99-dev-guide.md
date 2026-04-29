@@ -62,7 +62,7 @@ rad/   -- Audio capture and encoding
 rhd/   -- HTTP server (snapshots, MJPEG, audio streaming)
 rod/   -- OSD rendering (libschrift text, detection boxes)
 ric/   -- IR-cut and day/night control
-rmr/   -- Motion-triggered recording (fMP4)
+rmr/   -- Motion-triggered recording (fMP4, H.264/H.265/MJPEG)
 rmd/   -- Motion detection state machine
 rwd/   -- WebRTC server (WHIP signaling, DTLS-SRTP)
 rwc/   -- USB webcam gadget (UVC+UAC)
@@ -195,7 +195,7 @@ break with the next.
 | compy (SDP) | RFC 4566 (SDP), RFC 3264 (offer/answer) |
 | compy (payloads) | RFC 6184 (H.264), RFC 7798 (H.265), RFC 3640 (AAC), RFC 7587 (Opus) |
 | RWD (WebRTC) | RFC 8445 (ICE), RFC 8489 (STUN), RFC 5764 (DTLS-SRTP), WHIP (draft-ietf-wish-whip) |
-| RMR (recording) | ISO 14496-12 (ISOBMFF/fMP4) |
+| RMR (recording) | ISO 14496-12 (ISOBMFF/fMP4), MJPEG in MP4 (FourCC `jpeg`) |
 | RSD / RSD-555 (RTSP) | RFC 2326 (RTSP/1.0), RFC 3550 (RTP §5.1), RFC 4566 (SDP) |
 
 **Compliance items enforced across RSD, RSD-555, and compy:**
