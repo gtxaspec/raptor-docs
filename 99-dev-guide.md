@@ -70,6 +70,7 @@ rfs/   -- File source (MP4/Annex B playback into rings)
 rsp/   -- RTMP/RTMPS stream push (YouTube, Twitch)
 raptorctl/  -- CLI control tool
 ringdump/   -- Ring buffer debug/dump tool
+rlatency/   -- End-to-end RTSP latency measurement tool
 rac/        -- Audio playback and recording tool
 ```
 
