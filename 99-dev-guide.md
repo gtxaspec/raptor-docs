@@ -530,6 +530,7 @@ sanitizer warnings or test failures.
 | Build system, repo layout, Buildroot | `21-rss-build.md` |
 | Test suites, ASAN, integration tests | `22-rss-testing.md` |
 | Configuration reference (all options) | `23-rss-config.md` |
+| Ring buffer consumer API and examples | `24-ring-consumer-guide.md` |
 | HAL API (all ops, all SoCs) | `10-hal-api.md` |
 | HAL internals and porting | `11-hal-internals.md` |
 | SoC capabilities matrix | `12-hal-caps.md` |
