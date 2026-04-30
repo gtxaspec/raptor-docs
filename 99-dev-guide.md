@@ -344,9 +344,10 @@ make distclean
 ```
 
 `make distclean` removes stale build artifacts. The build script
-downloads the toolchain and all dependencies, then builds everything.
-Use `--local` to use sibling repo checkouts instead of cloning.
-Output binaries go to `build/`.
+downloads the toolchain and all dependencies, then builds everything,
+no need to specify `CROSS_COMPILE` manually. Use `--local` to use
+sibling repo checkouts instead of cloning. Output binaries go to
+`build/`.
 
 ### Build Individual Targets
 
