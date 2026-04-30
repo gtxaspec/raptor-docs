@@ -68,6 +68,7 @@ rwd/   -- WebRTC server (WHIP signaling, DTLS-SRTP)
 rwc/   -- USB webcam gadget (UVC+UAC)
 rfs/   -- File source (MP4/Annex B playback into rings)
 rsp/   -- RTMP/RTMPS stream push (YouTube, Twitch)
+rsr/   -- SRT listener (MPEG-TS over SRT, libsrt)
 raptorctl/  -- CLI control tool
 ringdump/   -- Ring buffer debug/dump tool
 rlatency/   -- End-to-end RTSP latency measurement tool
@@ -198,6 +199,7 @@ break with the next.
 | RWD (WebRTC) | RFC 8445 (ICE), RFC 8489 (STUN), RFC 5764 (DTLS-SRTP), WHIP (draft-ietf-wish-whip) |
 | RMR (recording) | ISO 14496-12 (ISOBMFF/fMP4), MJPEG in MP4 (FourCC `jpeg`) |
 | RSD / RSD-555 (RTSP) | RFC 2326 (RTSP/1.0), RFC 3550 (RTP §5.1), RFC 4566 (SDP) |
+| RSR (SRT/TS) | ISO 13818-1 (MPEG-TS), SRT protocol (Haivision spec / draft-sharabayko-srt) |
 
 **Compliance items enforced across RSD, RSD-555, and compy:**
 

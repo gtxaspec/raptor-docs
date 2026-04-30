@@ -550,6 +550,38 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   bandwidth, server availability). Isolating it prevents network stalls
   from affecting local recording or RTSP serving.
 
+#### RSR -- SRT Listener
+
+- **Role**: Serve live video+audio as MPEG-TS over SRT protocol to
+  remote clients (ffplay, VLC, OBS, go2rtc, NVRs).
+- **Inputs**: Video rings (main, sub, multi-sensor), audio ring.
+- **Dependencies**: librss_ipc, librss_common (rss_ts muxer), libsrt
+  (statically linked), libstdc++.
+- **Protocol**: SRT listener (Haivision libsrt reference implementation).
+  UDP-based with ARQ retransmission, AES-128/192/256 encryption, TsbPd
+  latency buffering. MPEG-TS muxing per ISO 13818-1 -- PAT/PMT/PES with
+  PCR, PTS/DTS, registration descriptors for Opus and LPCM.
+- **Multi-stream**: Clients select video stream via SRT STREAMID
+  (`main`, `sub`, `s1_main`, etc.). Streams are lazily opened on first
+  client, closed when last client disconnects. Default stream from config.
+- **Multi-client**: Up to 8 concurrent clients, each with independent
+  TS continuity counters. New clients wait for IDR before receiving data.
+- **Audio**: All five Raptor codecs mapped -- AAC (stream_type 0x0F),
+  Opus (0x06 + registration descriptor), G.711 µ/A-law and L16
+  (0x06 + LPCM registration descriptor).
+- **Networking**: Dual-stack IPv4/IPv6 (in6addr_any, IPV6_V6ONLY=0).
+  Non-blocking SRT epoll for accept and error detection. Chunked sends
+  at 1316 bytes (7 TS packets) matching SRT live payload size.
+- **Resilience**: Ring stale detection -- closes and reopens ring after
+  ~2s idle (RVD restart). Audio ring reconnect on loss. Per-client
+  keyframe gating on overflow recovery.
+- **Config**: `[srt]` section -- `enabled`, `port`, `latency`,
+  `passphrase`, `pbkeylen`, `max_clients`, `stream`, `audio`.
+  Control via `raptorctl rsr status/clients`.
+- **Why separate**: SRT has its own congestion control and retransmission
+  state machine (via libsrt). Isolating it prevents SRT-specific C++
+  dependency and send-side buffering from affecting other daemons.
+
 #### RV4 -- V4L2 Bridge *(planned, not yet implemented)*
 
 - **Role**: Expose the video stream as a V4L2 output device

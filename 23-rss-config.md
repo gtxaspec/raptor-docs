@@ -586,6 +586,29 @@ YouTube, Twitch, and other RTMP targets.
 
 ---
 
+### `[srt]`
+
+SRT listener for RSR. Serves MPEG-TS over SRT protocol.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Enable SRT listener |
+| `port` | int | `9000` | SRT listener port (UDP) |
+| `latency` | int | `120` | SRT latency in ms (TsbPd buffer) |
+| `passphrase` | string | (empty) | AES encryption passphrase (empty = no encryption) |
+| `pbkeylen` | int | `16` | AES key length: 16 (AES-128), 24 (AES-192), or 32 (AES-256) |
+| `max_clients` | int | `4` | Max simultaneous SRT clients (1-8) |
+| `stream` | int | `0` | Default video stream: 0=main, 1=sub |
+| `audio` | bool | `true` | Include audio in TS stream |
+
+Clients can override the default stream by setting SRT STREAMID to
+a ring name (`main`, `sub`, `s1_main`, `s1_sub`, `s2_main`, `s2_sub`).
+
+Example: `ffplay srt://camera-ip:9000` for main stream,
+`ffplay "srt://camera-ip:9000?streamid=sub"` for sub stream.
+
+---
+
 ### `[filesource]`
 
 File source for RFS. Replaces RVD+RAD on platforms without ISP
