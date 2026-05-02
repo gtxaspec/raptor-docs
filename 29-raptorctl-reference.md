@@ -303,7 +303,18 @@ All take effect on the next poll cycle (default 1 second).
 
 ---
 
-## 12. RSP -- RTMP/RTMPS Push
+## 12. RMR -- Recording
+
+| Command | Description |
+|---------|-------------|
+| `enable` | Enable recording (continuous + clips) |
+| `disable` | Disable all recording (closes active segments) |
+| `start` | Start motion clip (motion/both modes) |
+| `stop` | Stop motion clip |
+
+---
+
+## 13. RSP -- RTMP/RTMPS Push
 
 | Command | Description |
 |---------|-------------|
@@ -313,7 +324,7 @@ All take effect on the next poll cycle (default 1 second).
 
 ---
 
-## 13. RSR -- SRT Listener
+## 14. RSR -- SRT Listener
 
 | Command | Description |
 |---------|-------------|
@@ -321,7 +332,7 @@ All take effect on the next poll cycle (default 1 second).
 
 ---
 
-## 14. Examples
+## 15. Examples
 
 ```sh
 # Debug a daemon
@@ -376,7 +387,7 @@ raptorctl config save
 
 ---
 
-## 15. JSON Mode
+## 16. JSON Mode
 
 For scripting or when you need structured output, use `-j`:
 
@@ -401,7 +412,7 @@ requested data.
 
 ---
 
-## 16. Notes
+## 17. Notes
 
 - **Persistence:** Runtime changes are in-memory only until
   `raptorctl config save` writes them to disk. A daemon restart
