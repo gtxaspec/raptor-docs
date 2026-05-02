@@ -259,7 +259,9 @@ add a new command:
    `raptorctl -j` since it sends raw JSON directly.
 
 Pattern reference: `stream-stop`/`stream-start` in `rvd_ctrl.c`,
-`mute`/`unmute` in `rad_main.c`.
+`mute`/`unmute` in `rad_main.c`, `ai-disable`/`ai-enable` and
+`ao-disable`/`ao-enable` in `rad_main.c` (pipeline teardown/bringup
+with rollback on failure).
 
 ### Adding a Simple Encoder Parameter
 

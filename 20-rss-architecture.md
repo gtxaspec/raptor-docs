@@ -829,12 +829,16 @@ Pipeline commands:
 | `set-volume <val>` | Input volume |
 | `set-gain <val>` | Input gain |
 | `set-alc-gain <0-7>` | ALC gain (T21/T31 only) |
-| `set-aec <0\|1>` | Acoustic echo cancellation (requires ao_enabled) |
+| `mute` / `unmute` | Mute/unmute audio input |
+| `ai-disable` / `ai-enable` | Disable/enable audio input pipeline |
+| `set-aec <0\|1>` | Acoustic echo cancellation (requires ai + ao) |
 | `set-ns <0\|1> [0-3]` | Noise suppression level |
 | `set-hpf <0\|1>` | High-pass filter |
 | `set-agc <0\|1> [target] [comp]` | Automatic gain control |
 | `ao-set-volume <val>` | Speaker volume |
 | `ao-set-gain <val>` | Speaker gain |
+| `ao-mute` / `ao-unmute` | Mute/unmute speaker (soft fade) |
+| `ao-disable` / `ao-enable` | Disable/enable audio output pipeline |
 
 **ROD commands:**
 
