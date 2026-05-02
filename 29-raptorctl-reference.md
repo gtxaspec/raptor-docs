@@ -211,6 +211,14 @@ T20 through T31.
 
 ## 7. ROD -- OSD Renderer
 
+### Global Control
+
+| Command | Description |
+|---------|-------------|
+| `enable` | Enable OSD rendering (resumes after disable) |
+| `disable` | Disable OSD (clears all regions to transparent) |
+| `set-time-format <fmt>` | Set strftime format for `%time%` template variable |
+
 ### Element Management
 
 | Command | Description |
@@ -301,6 +309,7 @@ All take effect on the next poll cycle (default 1 second).
 |---------|-------------|
 | `start` | Start push stream |
 | `stop` | Stop push stream |
+| `set-url <rtmp://...>` | Change target URL (disconnects and reconnects) |
 
 ---
 
@@ -345,6 +354,14 @@ raptorctl rvd request-idr
 
 # Add OSD text element
 raptorctl rod add-element cam1 type=text template="Camera 1" position=top-left
+
+# Disable OSD temporarily, change time format, re-enable
+raptorctl rod disable
+raptorctl rod set-time-format "%H:%M:%S"
+raptorctl rod enable
+
+# Switch RTMP target live
+raptorctl rsp set-url rtmp://live.twitch.tv/app/new_stream_key
 
 # Mute audio, disable echo cancellation
 raptorctl rad mute
