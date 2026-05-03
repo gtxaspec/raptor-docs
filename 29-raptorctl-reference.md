@@ -47,6 +47,16 @@ These do not target a specific daemon.
 
 Available on every daemon via the shared control handler.
 
+### Lifecycle
+
+| Command | Description |
+|---------|-------------|
+| `<daemon> start [args...]` | Start daemon (fork+exec via PATH, passes extra args like `-c`) |
+| `<daemon> stop` | Stop daemon (clean shutdown, SIGTERM fallback after 2s) |
+| `<daemon> restart` | Restart daemon (clean re-exec, preserves original args) |
+
+### Runtime
+
 | Command | Description |
 |---------|-------------|
 | `<daemon> status` | Show daemon details (uptime, version, state) |
@@ -264,15 +274,15 @@ T20 through T31.
 
 All take effect on the next poll cycle (default 1 second).
 
-| Key | Description |
-|-----|-------------|
-| `night_luma` | AE luma below this triggers night (0-255, default 20) |
-| `night_gain` | Gain above this triggers night regardless of luma (default 80000) |
-| `day_gain_pct` | Gain below this % of baseline triggers day (default 25) |
-| `night_threshold` | Gain-trigger: gain above this = night (default 40000) |
-| `day_threshold` | Gain-trigger: gain below this = day (default 25000) |
-| `hysteresis_sec` | Consecutive seconds before mode switch (default 5) |
-| `poll_interval_ms` | Sample interval in ms (min 50, default 1000) |
+| Key | Range | Description |
+|-----|-------|-------------|
+| `night_luma` | 0-255 | AE luma below this triggers night (default 20) |
+| `night_gain` | >= 0 | Gain above this triggers night regardless of luma (default 80000) |
+| `day_gain_pct` | 1-100 | Gain below this % of baseline triggers day (default 25) |
+| `night_threshold` | >= 0 | Gain-trigger: gain above this = night (default 40000) |
+| `day_threshold` | >= 0 | Gain-trigger: gain below this = day (default 25000) |
+| `hysteresis_sec` | 1-300 | Consecutive seconds before mode switch (default 5) |
+| `poll_interval_ms` | 50-10000 | Sample interval in ms (default 1000) |
 
 ---
 
