@@ -343,7 +343,7 @@ OSD global settings for ROD.
 | `font_color` | string | `0xFFFFFFFF` | Default text color (BGRA hex) |
 | `font_stroke` | int | `1` | Default stroke width (0-5) |
 | `stroke_color` | string | `0xFF000000` | Default stroke color (BGRA hex) |
-| `time_format` | string | `%Y-%m-%d %H:%M:%S` | strftime format for `%time%` |
+| `time_format` | string | `%Y-%m-%d %H:%M:%S` | strftime format for `%time%`. `%f` expands to 2-digit frame number (00-N based on stream0 fps) |
 | `privacy_color` | string | `0xFF000000` | Privacy cover fill color (BGRA) |
 
 ISP OSD works with IVDC and has zero DDR bandwidth overhead. IPU OSD
