@@ -412,7 +412,10 @@ IR-cut filter and day/night control for RIC.
 | `poll_interval_ms` | int | `1000` (luma/gain/adc) / `100` (photo) | Polling interval |
 | `gpio_ircut` | int | `-1` | IR-cut GPIO (-1=auto from /etc/thingino.json) |
 | `gpio_ircut2` | int | `-1` | Second IR-cut GPIO |
-| `gpio_irled` | int | `-1` | IR LED GPIO |
+| `gpio_irled` | int | `-1` | 850nm IR LED GPIO (-1=auto from /etc/thingino.json) |
+| `gpio_irled2` | int | `-1` | 940nm IR LED GPIO (-1=auto from /etc/thingino.json) |
+| `ir850` | bool | `true` | Enable 850nm IR LED (visible glow, stronger illumination) |
+| `ir940` | bool | `false` | Enable 940nm IR LED (invisible, weaker illumination) |
 
 **Luma trigger (default):**
 

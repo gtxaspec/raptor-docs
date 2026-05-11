@@ -103,8 +103,8 @@ it falls back to `/etc/thingino.json`:
 
 Parsing rules:
 - `ircut`: string `"57 58"` → dual GPIO (motor driver), `"57"` → single, integer `57` → single
-- `ir850`: IR LED GPIO (preferred over ir940)
-- `ir940`: IR LED GPIO (fallback if ir850 absent)
+- `ir850`: 850nm IR LED GPIO (mapped to `gpio_irled`)
+- `ir940`: 940nm IR LED GPIO (mapped to `gpio_irled2`)
 
 ### GPIO Control
 
@@ -132,7 +132,10 @@ hysteresis_sec = 5            # consecutive seconds before switching
 poll_interval_ms = 1000       # exposure poll interval
 gpio_ircut = -1               # -1 = auto from /etc/thingino.json
 gpio_ircut2 = -1              # second pin for dual motor mode
-gpio_irled = -1               # IR LED pin
+gpio_irled = -1               # 850nm IR LED pin (-1 = auto)
+gpio_irled2 = -1              # 940nm IR LED pin (-1 = auto)
+ir850 = true                  # enable 850nm LED (visible glow, stronger)
+ir940 = false                 # enable 940nm LED (invisible, weaker)
 
 # Photo trigger thresholds (trigger=photo only)
 photo_ev_day = 188000         # EV above this starts day detection
