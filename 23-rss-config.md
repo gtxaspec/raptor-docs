@@ -440,15 +440,17 @@ IR-cut filter and day/night control for RIC.
 | `adc_night` | int | `200` | ADC below this triggers night |
 | `adc_day` | int | `600` | ADC above this triggers day |
 
-**Photo trigger (EV-based):**
+**Photo trigger (EV + AWB, `trigger=photo`):**
+
+EV direction on Ingenic: HIGH ev = dark (more exposure), LOW ev = bright.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `photo_ev_night` | int | `50000` | EV above this is dark (high EV = dark) |
-| `photo_ev_deep` | int | `150000` | EV above this is very dark |
-| `photo_ev_day` | int | `5000` | EV below this is bright |
-| `photo_rgain_rec` | int | `0` | R-gain AWB baseline (0=auto-calibrate) |
-| `photo_bgain_rec` | int | `0` | B-gain AWB baseline (0=auto-calibrate) |
+| `photo_ev_night` | int | `50000` | EV above this is dark |
+| `photo_ev_deep` | int | `150000` | EV above this is very dark (fixed-EV fallback) |
+| `photo_ev_day` | int | `5000` | EV below this is bright (starts day detection) |
+| `photo_rgain_rec` | int | `0` | R-gain AWB baseline (0=auto-calibrate from 16 bright samples) |
+| `photo_bgain_rec` | int | `0` | B-gain AWB baseline (0=auto-calibrate from 16 bright samples) |
 
 ---
 

@@ -138,12 +138,12 @@ ir850 = true                  # enable 850nm LED (visible glow, stronger)
 ir940 = false                 # enable 940nm LED (invisible, weaker)
 
 # Photo trigger thresholds (trigger=photo only)
-photo_ev_day = 188000         # EV above this starts day detection
-photo_ev_1lux = 10000         # EV below this forces night after drift
-photo_ev_3lux = 3000          # 3-lux night counter threshold
-photo_ev_6lux = 1200          # 6-lux night counter threshold
-photo_rgain_rec = 250         # R-gain baseline for spectral shift detection
-photo_bgain_rec = 187         # B-gain baseline for spectral shift detection
+# EV direction: HIGH ev = dark (more exposure), LOW ev = bright
+photo_ev_night = 50000        # EV above this → dark
+photo_ev_deep = 150000        # EV above this → very dark
+photo_ev_day = 5000           # EV below this → bright
+photo_rgain_rec = 0           # R-gain baseline (0 = auto-calibrate)
+photo_bgain_rec = 0           # B-gain baseline (0 = auto-calibrate)
 ```
 
 ### Runtime Control
@@ -153,7 +153,15 @@ raptorctl ric mode auto       # resume auto detection
 raptorctl ric mode day        # force day mode
 raptorctl ric mode night      # force night mode
 raptorctl ric status          # show mode, state, exposure
+raptorctl ric get-thresholds  # show all threshold values
+raptorctl ric set-threshold night_luma 30    # change threshold at runtime
+raptorctl ric set-threshold hysteresis_sec 3
 ```
+
+Tunable keys: `night_luma` (0-255), `night_gain` (>=0),
+`day_gain_pct` (1-100), `night_threshold` (>=0), `day_threshold`
+(>=0), `hysteresis_sec` (1-300), `poll_interval_ms` (50-10000).
+Changes take effect on the next poll cycle.
 
 ---
 
@@ -184,7 +192,13 @@ Setting `trigger = photo` enables a multi-stage detection algorithm
 using ISP EV value and AWB white balance R/B gain statistics.
 
 Photo mode uses its own state machine independent of the luma/gain
-cooldown and hysteresis counters.
+cooldown and hysteresis counters. Default poll interval is 100ms.
+
+### EV Direction
+
+On Ingenic, EV is the exposure product (integration time x gain):
+**HIGH ev = dark** (ISP compensating with more exposure), **LOW ev =
+bright**. All threshold comparisons follow this convention.
 
 ### Inputs
 
@@ -198,19 +212,30 @@ cooldown and hysteresis counters.
   their daylight baseline. This spectral signature distinguishes
   genuine darkness from IR-contaminated scenes.
 
+### AWB Auto-Calibration
+
+R/B gain baselines are auto-calibrated by default. On startup, RIC
+collects 16 samples where EV indicates a bright scene (ev < ev_day)
+and averages the R-gain and B-gain values. This baseline is used for
+spectral shift detection in the night trigger.
+
+Set `photo_rgain_rec` and `photo_bgain_rec` to nonzero values to
+override auto-calibration with fixed baselines. The calibration is
+preserved across phase resets (night/day/interfere transitions).
+
 ### State Machine
 
 ```
-                    EV dark + R/B gain shift (23+ polls)
-                    OR fixed-EV drift (10× at 200-poll intervals)
+                    ev > ev_night + R/B gain shift (23+ polls)
+                    OR fixed-EV drift (10x at 200-poll intervals)
   [NIGHT_DETECT] ──────────────────────────────────────→ [DAY_DETECT]
         ↑                                                     │
         │  interfere timeout (9000 polls)                     │
-        │  OR genuine darkness (3× fall)                      │
+        │  OR genuine brightness (3x fall)                    │
         │                                                     │
-  [INTERFERE] ←── EV ratio 0.87-1.13 of ref (3× confirm) ───┘
+  [INTERFERE] ←── EV ratio 0.87-1.13 of ref (3x confirm) ───┘
         │                                                     ↑
-        │  false trigger (3× rise > 1.12×) → revert night    │
+        │  false trigger (3x rise > 1.12x) → revert night    │
         └─────────────────────────────────────────────────────┘
 ```
 
@@ -218,66 +243,65 @@ cooldown and hysteresis counters.
 
 Runs when in day mode. Evaluates two independent trigger paths:
 
-1. **R-gain path**: EV below `photo_ev_3lux` for 23+ consecutive
-   polls AND R-gain deviates from `photo_rgain_rec` by ≥15 and ≥9
-   for 3+ consecutive polls each.
+1. **R-gain path**: EV above `photo_ev_night` for 23+ consecutive
+   polls AND R-gain deviates from the calibrated baseline by >=15
+   and >=9 for 3+ consecutive polls each.
 
-2. **B-gain path**: EV below `photo_ev_6lux` for 23+ consecutive
-   polls AND B-gain deviates from `photo_bgain_rec` by ≥10 and ≥7
-   for 7+ consecutive polls each.
+2. **B-gain path**: EV above `photo_ev_deep` for 23+ consecutive
+   polls AND B-gain deviates from the calibrated baseline by >=10
+   and >=7 for 7+ consecutive polls each.
 
 Either path firing triggers the switch to night mode.
 
-**Fixed-EV fallback**: if neither path fires but EV stays below
-`photo_ev_1lux` for 10 consecutive checks (sampled every 200 polls),
+**Fixed-EV fallback**: if neither path fires but EV stays above
+`photo_ev_deep` for 10 consecutive checks (sampled every 200 polls),
 night mode is forced. Handles sensors whose gain characteristics
 don't produce sufficient R/B deviation.
 
 ### Day Detection (DAY_DETECT phase)
 
 Runs when in night mode. Collects 10 EV samples into a ring buffer
-when EV exceeds `photo_ev_day`. Compares the last sample against a
-reference using ratio thresholds:
+when EV drops below `photo_ev_day` (bright scene). Compares the
+last sample against a reference using ratio thresholds:
 
-- EV > reference × 0.87: sample is above noise floor, continue
-- EV < reference × 1.13: moderate day signal, increment trigger
-  counter. After 3 consecutive triggers → switch to day.
+- Sample >= reference x 1.13: too dark, reset ring.
+- Sample within 0.87-1.13 of reference: moderate day signal,
+  increment trigger counter. After 3 consecutive triggers, switch
+  to day.
 
 A separate fixed-drift detector (8-sample baseline, 0.70 ratio
-threshold) catches slow transitions where EV gradually drops below
-the night baseline.
+threshold) catches slow transitions where EV gradually drops
+(brightens) below the night baseline.
 
 ### Anti-Interference (INTERFERE phase)
 
-Runs after a night→day transition. Monitors for false triggers
+Runs after a night-to-day transition. Monitors for false triggers
 caused by transient light sources (headlights, flashlights):
 
 - Collects an 8-sample EV baseline, validates stability (within
   0.92-1.08 ratio of first to last sample).
-- Watches for EV rising above reference × 1.12 — indicates
-  transient bright source. Three consecutive rises revert to
-  night mode.
-- EV falling below reference × 0.88 for three consecutive polls
-  indicates genuine darkness — transitions to NIGHT_DETECT.
-- Times out after 9000 polls (~2.5 hours at 1s interval) and
+- Watches for EV rising above reference x 1.12 (scene darkening).
+  Three consecutive rises revert to night mode.
+- EV dropping below reference x 0.88 for three consecutive polls
+  indicates genuine brightness -- transitions to NIGHT_DETECT.
+- Times out after 9000 polls (~15 minutes at 100ms interval) and
   resets to NIGHT_DETECT.
 
-### Sensor Thresholds
+### Tuning
 
-Default thresholds match the gc2053/jxf37 profile (4 of 5 sensors
-in the default config). Known per-sensor values:
+The defaults work for most sensors without configuration. If
+tuning is needed:
 
-| Sensor | ev_day  | ev_1lux | ev_3lux | ev_6lux | rgain_rec | bgain_rec |
-|--------|---------|---------|---------|---------|-----------|-----------|
-| sc2310 | 48926   | 10000   | 2418    | 1000    | 262       | 209       |
-| gc2053 | 188000  | 10000   | 3000    | 1200    | 250       | 187       |
-| jxf37  | 188000  | 10000   | 3000    | 1200    | 250       | 187       |
-| gc4653 | 35000   | 10000   | 3000    | 1200    | 250       | 187       |
-| jxf23  | 35000   | 10000   | 3000    | 1200    | 250       | 187       |
-
-For sensors not in this table, the defaults (gc2053 profile) are a
-reasonable starting point. Tune `photo_ev_day` first — it controls
-day detection sensitivity. Lower values detect day sooner.
+- **`photo_ev_night`** (default 50000): EV above this is considered
+  dark enough for night detection. Lower values make night trigger
+  more sensitive.
+- **`photo_ev_deep`** (default 150000): EV above this forces night
+  via the fixed-EV fallback. Handles sensors with weak R/B deviation.
+- **`photo_ev_day`** (default 5000): EV below this starts day
+  detection. Higher values detect day sooner.
+- **AWB baselines**: leave at 0 for auto-calibration. Set fixed
+  values only if the auto-calibrated baseline is consistently wrong
+  for your sensor.
 
 ### Platform Support
 
