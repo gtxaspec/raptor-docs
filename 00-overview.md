@@ -79,9 +79,10 @@ Headers are the ground truth for HAL implementation. Sourced from
 | T30 | 1.0.5 | Chinese | 14 (+imp_dmic.h) |
 | T31 | 1.1.6 | English | 15 (+imp_dmic.h, imp_emu_framesource.h) |
 | T32 | 1.0.6 | English | 14 (+isp_osd.h, no imp_decoder.h) |
-| T33 | 1.0.0 | English | 14 |
+| T33 | 2.0.2.1 | English | 14 |
 | T40 | 1.3.1 | English | 16 (all headers) |
 | T41 | 1.2.5 | English | 16 (all headers) |
+| A1  | 1.7.0 | English | 16 (all headers) |
 
 ## Libraries
 
