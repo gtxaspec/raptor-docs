@@ -3,8 +3,8 @@
 ## Purpose
 
 This documentation provides complete specifications for the RSS Hardware
-Abstraction Layer (HAL) across 9 Ingenic SoCs (T20, T21, T23, T30, T31,
-T32, T40, T41, A1), plus system architecture, build integration, and
+Abstraction Layer (HAL) across 10 Ingenic SoCs (T20, T21, T23, T30, T31,
+T32, T33, T40, T41, A1), plus system architecture, build integration, and
 operational reference for the daemon suite.
 
 ## RSS Architecture Summary
@@ -17,7 +17,7 @@ RSS is a microservices-based streaming platform for embedded IP cameras:
 │                                                                    │
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │                          HAL                                  │  │
-│  │        T20 / T21 / T23 / T30 / T31 / T32 / T40 / T41        │  │
+│  │     T20 / T21 / T23 / T30 / T31 / T32 / T33 / T40 / T41     │  │
 │  └─────────────────────────┬────────────────────────────────────┘  │
 │                            │                                        │
 │  ┌─────────────────────────┴────────────────────────────────────┐  │
@@ -66,12 +66,10 @@ The Ingenic libimp API has evolved across SoC generations. There are three disti
 - Extended `IMPSensorInfo` with `sensor_id`, `video_interface` (IMPSensorVinType), `mclk` (IMPSensorMclk)
 - Face AE/AWB, HLDC, auto zoom, extended statistics
 
-## Source Paths
+## SDK Headers
 
-### Headers (ground truth for HAL implementation)
-```
-~/projects/thingino/ingenic-headers/{SoC}/{version}/{lang}/imp/
-```
+Headers are the ground truth for HAL implementation. Sourced from
+[ingenic-headers](https://github.com/gtxaspec/ingenic-headers).
 
 | SoC | Version | Language | Header Count |
 |-----|---------|----------|-------------|
@@ -81,41 +79,29 @@ The Ingenic libimp API has evolved across SoC generations. There are three disti
 | T30 | 1.0.5 | Chinese | 14 (+imp_dmic.h) |
 | T31 | 1.1.6 | English | 15 (+imp_dmic.h, imp_emu_framesource.h) |
 | T32 | 1.0.6 | English | 14 (+isp_osd.h, no imp_decoder.h) |
+| T33 | 1.0.0 | English | 14 |
 | T40 | 1.3.1 | English | 16 (all headers) |
 | T41 | 1.2.5 | English | 16 (all headers) |
 
-### Libraries (link targets)
-```
-~/projects/thingino/ingenic-lib/{SoC}/lib/{version}/{libc}/{gcc_version}/
-```
+## Libraries
 
-Core libraries for all SoCs:
-- `libimp.so` / `libimp.a` — main IMP library (~1.2-2.4MB)
-- `libalog.so` / `libalog.a` — logging (~30-40KB)
-- `libaudioProcess.so` — audio DSP firmware (T31+, ~650-740KB)
-- `libsysutils.so` / `libsysutils.a` — system utilities (~30-48KB)
+Core libraries for all SoCs (from [ingenic-lib](https://github.com/gtxaspec/ingenic-lib)):
+- `libimp.so` / `libimp.a` - main IMP library (~1.2-2.4MB)
+- `libalog.so` / `libalog.a` - logging (~30-40KB)
+- `libaudioProcess.so` - audio DSP firmware (T31+, ~650-740KB)
+- `libsysutils.so` / `libsysutils.a` - system utilities (~30-48KB)
 
-### Kernel Drivers
-```
-~/projects/thingino/ingenic-sdk/{kernel_version}/{module}/{soc}/
-```
+## Kernel Drivers
+
+ISP, audio, AVPU, and sensor drivers (from [ingenic-sdk](https://github.com/themactep/ingenic-sdk)):
 - 3.10 kernel: T20, T21, T23, T30, T31, T41
-- 4.4 kernel: T31, T40, T41, A1, C100
-
-### PDF/HTML Documentation
-```
-~/projects/thingino/ingenic-docs/{SoC}/SDK/
-```
-- Doxygen HTML: T10, T21, T30
-- PDF API references: T31, T40, T41 (per-module PDFs)
-- Ignore ZERATUL subdirectories
+- 4.4 kernel: T23, T31, T33, T40, T41, A1, C100
 
 ## Build Integration
 
 Thingino uses buildroot. The SoC is selected at build time:
 - `SOC_FAMILY` variable set by board config (e.g., `t31`, `t40`)
 - Passed to compiler as `-DPLATFORM_T31` (uppercased)
-- Reference: `~/projects/thingino/thingino-firmware/package/prudynt-t/prudynt-t.mk`
 
 ## HAL Quick-Start Usage Example
 
@@ -202,7 +188,7 @@ int main(void) {
 
 ## HAL Library
 
-The HAL is implemented as `libraptor_hal.a` at `~/projects/thingino/raptor-hal/`.
+The HAL is implemented as `libraptor_hal.a` in [raptor-hal](https://github.com/gtxaspec/raptor-hal).
 - `include/raptor_hal.h` — single public header, the only file daemons include
 - `src/` — implementation files (per-module, not per-SoC)
 - `Makefile` — builds for any SoC: `make PLATFORM=T31 CROSS_COMPILE=mipsel-linux-gnu-`

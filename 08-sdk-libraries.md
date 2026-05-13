@@ -4,7 +4,7 @@
 
 All Ingenic SoC SDKs ship as prebuilt binary libraries. Source code is not available. The HAL links against these at build time and the `.so` files must be deployed to the target device at runtime.
 
-Library location: `~/projects/thingino/ingenic-lib/{SoC}/lib/{version}/{libc}/{gcc}/`
+Library source: [ingenic-lib](https://github.com/gtxaspec/ingenic-lib) - `{SoC}/lib/{version}/{libc}/{gcc}/`
 
 ---
 
@@ -147,7 +147,7 @@ These complement `libaudioProcess.so` for advanced audio pipeline processing. On
 
 ## 5. Acceleration Module Libraries
 
-Located in `~/projects/thingino/ingenic-lib/acceleration-modules/`, organized by accelerator type rather than SoC.
+Located in `ingenic-lib/acceleration-modules/`, organized by accelerator type rather than SoC.
 
 ### IVS (Intelligent Video Surveillance)
 
