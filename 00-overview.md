@@ -26,9 +26,8 @@ RSS is a microservices-based streaming platform for embedded IP cameras:
 │  │       │ SHM ring buffers + eventfd                            │  │
 │  │       ▼                                                        │  │
 │  │  Consumers: RSD (RTSP), RHD (HTTP), RMR (recorder),          │  │
-│  │             RWD (WebRTC), RWC (webcam)                        │  │
-│  │                                                                │  │
-│  │  Planned:   RSP (stream push), RV4 (V4L2 bridge)             │  │
+│  │             RWD (WebRTC), RWC (webcam), RSP (stream push),   │  │
+│  │             RSR (SRT)                                         │  │
 │  │                                                                │  │
 │  │  Control:   RIC (IR/day-night), RMD (motion detection)        │  │
 │  └───────────────────────────────────────────────────────────────┘  │
