@@ -160,7 +160,9 @@ raptorctl ric set-threshold hysteresis_sec 3
 
 Tunable keys: `night_luma` (0-255), `night_gain` (>=0),
 `day_gain_pct` (1-100), `night_threshold` (>=0), `day_threshold`
-(>=0), `hysteresis_sec` (1-300), `poll_interval_ms` (50-10000).
+(>=0), `hysteresis_sec` (1-300), `poll_interval_ms` (50-10000),
+`photo_ev_night` (>=0), `photo_ev_deep` (>=0), `photo_ev_day`
+(>=0), `photo_rgain_rec` (0-65535), `photo_bgain_rec` (0-65535).
 Changes take effect on the next poll cycle.
 
 ---
