@@ -49,7 +49,7 @@ The Ingenic libimp API has evolved across SoC generations. There are three disti
 - ISP sensor: `IMP_ISP_AddSensor(IMPSensorInfo *info)` (no IMPVI_NUM)
 - No `SetDefaultParam()`, no `gopAttr`, no buffer sharing
 
-### New SDK (T31, T32)
+### New SDK (T31, T32, T33)
 - Encoder: `IMPEncoderChnAttr` (camelCase), fields `uWidth`/`uHeight`, no `bufSize`/`enType`
 - Encoder packs: ring-buffer with `stream.virAddr + pack[i].offset`, NAL via `nalType.h264NalType`
 - RC modes: `IMP_ENC_RC_MODE_FIXQP`, `IMP_ENC_RC_MODE_CBR`, `IMP_ENC_RC_MODE_VBR`, `IMP_ENC_RC_MODE_CAPPED_VBR`, `IMP_ENC_RC_MODE_CAPPED_QUALITY`
@@ -58,8 +58,9 @@ The Ingenic libimp API has evolved across SoC generations. There are three disti
 - ISP: scalar parameters with pointers — `IMP_ISP_Tuning_SetBrightness(unsigned char *bright)` (T31)
 - ISP sensor: `IMP_ISP_AddSensor(IMPSensorInfo *info)` (no IMPVI_NUM) on T31
 - T32: extended encoder (101 functions), ISP OSD regions, power management
+- T33: similar to T32 with some IMPVI-style features (memory, audio)
 
-### IMPVI SDK (T40, T41)
+### IMPVI SDK (T40, T41, A1)
 - Same encoder API as New SDK
 - ISP: all tuning functions take `IMPVI_NUM` as first param — `IMP_ISP_Tuning_SetBrightness(IMPVI_NUM num, unsigned char *bright)`
 - ISP sensor: `IMP_ISP_AddSensor(IMPVI_NUM num, IMPSensorInfo *pinfo)`

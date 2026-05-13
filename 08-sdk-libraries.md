@@ -18,7 +18,7 @@ Library source: [ingenic-lib](https://github.com/gtxaspec/ingenic-lib) - `{SoC}/
 | T30 | 1.0.5 | 4.7.2, 5.4.0 | uclibc, glibc |
 | T31 | 1.1.6 | 4.7.2, 5.4.0 | uclibc, glibc |
 | T32 | 1.0.6 | (direct) | uclibc, glibc |
-| T33 | 2.0.2.1 | 7.2.0 | uclibc, glibc |
+| T33 | 2.0.2.1 | 5.4.0 | uclibc, glibc |
 | T40 | 1.3.1 | 7.2.0 | uclibc, glibc |
 | T41 | 1.2.5 | 7.2.0 | uclibc, glibc |
 | A1  | 1.7.0 | 7.2.0 | uclibc, glibc |
@@ -251,21 +251,22 @@ All 10 SoCs have exactly the same 4 core libraries. `libaudioProcess` is always 
 | GCC Version | SoCs | Notes |
 |---|---|---|
 | 4.7.2 | T20, T21, T30, T31 | Legacy MIPS toolchain |
-| 5.4.0 | T21, T23, T30, T31 | Standard Thingino toolchain |
-| 7.2.0 | T33, T40, T41, A1 | Required for XBurst2 ISA |
+| 5.4.0 | T21, T23, T30, T31, T33 | Standard Thingino toolchain |
+| 7.2.0 | T40, T41, A1 | Required for XBurst2 ISA |
 
 - T20 only supports gcc 4.7.2 (older MIPS ABI)
 - T21 and T30 support both 4.7.2 and 5.4.0
 - T23 only supports gcc 5.4.0 (no 4.7.2 builds available)
 - T31 supports both 4.7.2 and 5.4.0
 - T32 has no gcc version subdirectory (libraries work with the matching toolchain)
-- T33, T40, T41, and A1 only support gcc 7.2.0 (XBurst2 architecture)
+- T33 uses gcc 5.4.0 (XBurst1 with New SDK API)
+- T40, T41, and A1 only support gcc 7.2.0 (XBurst2 architecture)
 
 For Thingino builds:
 - T20/T21/T30/T31: use gcc 5.4.0 uclibc (preferred) or 4.7.2 uclibc
-- T23: use gcc 5.4.0 uclibc (only option)
+- T23/T33: use gcc 5.4.0 uclibc (only option)
 - T32: use uclibc (direct, no gcc version selection)
-- T33/T40/T41/A1: use gcc 7.2.0 uclibc (only option)
+- T40/T41/A1: use gcc 7.2.0 uclibc (only option)
 
 ---
 

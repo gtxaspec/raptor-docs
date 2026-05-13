@@ -15,7 +15,7 @@ Source headers:
 | T30 | 1.0.5   | zh   | Old       |
 | T31 | 1.1.6   | en   | New       |
 | T32 | 1.0.6   | en   | Hybrid (Old structs + New features) |
-| T33 | 2.0.2.1 | en   | New       |
+| T33 | 2.0.2.1 | en   | Hybrid (New SDK + IMPVI features) |
 | T40 | 1.3.1   | en   | New       |
 | T41 | 1.2.5   | en   | New       |
 | A1  | 1.7.0   | en   | New       |
