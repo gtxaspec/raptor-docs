@@ -204,7 +204,7 @@ make distclean
 
 | Variable | Description |
 |----------|-------------|
-| `PLATFORM` | Target SoC: T20, T21, T23, T30, T31, T32, T40, T41, A1 |
+| `PLATFORM` | Target SoC: T10, T20, T21, T23, T30, T31, T32, T33, T40, T41, A1 |
 | `CROSS_COMPILE` | Compiler prefix (e.g., `mipsel-linux-`) |
 | `SYSROOT` | Buildroot sysroot path (for shared lib linking) |
 
@@ -257,15 +257,64 @@ make distclean
 
 | Platform | SoC | SDK Generation | Notes |
 |----------|-----|---------------|-------|
+| `t10` | T10 | Old | XBurst1 (uses T20 SDK) |
 | `t20` | T20 | Old | XBurst1 |
 | `t21` | T21 | Old | XBurst1 |
 | `t23` | T23 | Old (extended) | XBurst1, IVDC capable |
 | `t30` | T30 | Old | XBurst1 |
 | `t31` | T31 | New | XBurst1 (primary target) |
 | `t32` | T32 | New | XBurst1, dual-sensor |
+| `t33` | T33 | New | XBurst1, T32-compatible |
 | `t40` | T40 | IMPVI | XBurst2 |
 | `t41` | T41 | IMPVI | XBurst2 |
-| `a1` | A1 | IMPVI | XBurst2, 1MB L2, no ISP — uses RFS instead of RVD |
+| `a1` | A1 | IMPVI | XBurst2, 1MB L2, no ISP -- uses RFS instead of RVD |
+
+### 2.4 build-standalone.sh
+
+Self-contained build that downloads the toolchain and all dependencies.
+No buildroot required. First run takes a few minutes (downloads + dep builds),
+subsequent runs are fast.
+
+```bash
+# Basic build
+./build-standalone.sh t31
+
+# Development build (use sibling repos instead of cloning)
+./build-standalone.sh t31 --local
+
+# Production-style build (optimized, stripped, no libstdc++.so dependency)
+./build-standalone.sh t31 --release --static-stdcxx --local
+
+# Fully static (all deps baked into each binary, no .so files needed)
+./build-standalone.sh t31 --static --release --local
+```
+
+#### Options
+
+| Option | Description |
+|--------|-------------|
+| `--release` | Optimize for size (`-Oz`) and strip binaries |
+| `--static` | Statically link all dependencies (larger binaries, no .so files needed) |
+| `--static-stdcxx` | Statically link only libstdc++ (no libstdc++.so needed on device) |
+| `--static-vendor-libs` | Statically link vendor libs (libimp, libalog; requires `--static`) |
+| `--no-tls` | Disable TLS/WebRTC (no rwd/rsp) |
+| `--no-aac` | Disable AAC codec |
+| `--no-opus` | Disable Opus codec |
+| `--no-mp3` | Disable MP3 codec |
+| `--no-audio-effects` | Disable audio effects (NS/HPF/AGC) |
+| `--no-srt` | Disable SRT (no rsr) |
+| `--alt` | Enable mbedtls ALT patches (jz-crypto HW accel) |
+| `--local` | Use sibling repos instead of cloning from GitHub |
+| `--clean` | Clean build artifacts (keep downloaded deps) |
+| `--clean-all` | Remove everything (.deps/ + build/) |
+| `--deps-only` | Only build dependencies, not raptor |
+| `--libc=TYPE` | uclibc (default), musl, or glibc |
+
+#### Output
+
+Binaries are collected in `build/`. Without `--static`, shared libraries
+needed for deployment are collected in `build/lib/` (system libs like libc
+and libgcc are excluded since they are already on every device).
 
 ---
 

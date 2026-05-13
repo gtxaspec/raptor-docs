@@ -3,7 +3,7 @@
 ## Purpose
 
 This documentation provides complete specifications for the RSS Hardware
-Abstraction Layer (HAL) across 10 Ingenic SoCs (T20, T21, T23, T30, T31,
+Abstraction Layer (HAL) across 11 Ingenic SoCs (T10, T20, T21, T23, T30, T31,
 T32, T33, T40, T41, A1), plus system architecture, build integration, and
 operational reference for the daemon suite.
 
@@ -17,7 +17,7 @@ RSS is a microservices-based streaming platform for embedded IP cameras:
 │                                                                    │
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │                          HAL                                  │  │
-│  │     T20 / T21 / T23 / T30 / T31 / T32 / T33 / T40 / T41     │  │
+│  │  T10 / T20 / T21 / T23 / T30 / T31 / T32 / T33 / T40 / T41  │  │
 │  └─────────────────────────┬────────────────────────────────────┘  │
 │                            │                                        │
 │  ┌─────────────────────────┴────────────────────────────────────┐  │
@@ -41,7 +41,7 @@ HAL. All other daemons interact via SHM rings and control sockets.
 
 The Ingenic libimp API has evolved across SoC generations. There are three distinct API variants:
 
-### Old SDK (T20, T21, T23, T30)
+### Old SDK (T10, T20, T21, T23, T30)
 - Encoder: `IMPEncoderCHNAttr` (capital CHN), fields `picWidth`/`picHeight`, `bufSize`, `enType`
 - Encoder packs: direct `virAddr`/`phyAddr` per pack, NAL type via `dataType.h264Type`
 - RC modes: `ENC_RC_MODE_FIXQP`, `ENC_RC_MODE_CBR`, `ENC_RC_MODE_VBR`, `ENC_RC_MODE_SMART`
@@ -74,6 +74,7 @@ Headers are the ground truth for HAL implementation. Sourced from
 
 | SoC | Version | Language | Header Count |
 |-----|---------|----------|-------------|
+| T10 | 3.12.0 | Chinese | 13 (uses T20 SDK) |
 | T20 | 3.12.0 | Chinese | 13 |
 | T21 | 1.0.33 | Chinese | 13 |
 | T23 | 1.3.0 | English | 14 (+isp_osd.h) |
@@ -96,7 +97,7 @@ Core libraries for all SoCs (from [ingenic-lib](https://github.com/gtxaspec/inge
 ## Kernel Drivers
 
 ISP, audio, AVPU, and sensor drivers (from [ingenic-sdk](https://github.com/themactep/ingenic-sdk)):
-- 3.10 kernel: T20, T21, T23, T30, T31, T41
+- 3.10 kernel: T10, T20, T21, T23, T30, T31, T41
 - 4.4 kernel: T23, T31, T33, T40, T41, A1, C100
 
 ## Build Integration
