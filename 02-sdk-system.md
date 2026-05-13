@@ -10,8 +10,10 @@ Source headers analyzed:
 | T30 | 1.0.5 | zh | `T30/1.0.5/zh/imp/imp_system.h` |
 | T31 | 1.1.6 | en | `T31/1.1.6/en/imp/imp_system.h` |
 | T32 | 1.0.6 | en | `T32/1.0.6/en/imp/imp_system.h` |
+| T33 | 2.0.2.1 | en | `T33/2.0.2.1/en/imp/imp_system.h` |
 | T40 | 1.3.1 | en | `T40/1.3.1/en/imp/imp_system.h` |
 | T41 | 1.2.5 | en | `T41/1.2.5/en/imp/imp_system.h` |
+| A1  | 1.7.0 | en | `A1/1.7.0/en/imp/imp_system.h` |
 
 ---
 

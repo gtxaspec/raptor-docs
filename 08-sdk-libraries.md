@@ -18,8 +18,10 @@ Library source: [ingenic-lib](https://github.com/gtxaspec/ingenic-lib) - `{SoC}/
 | T30 | 1.0.5 | 4.7.2, 5.4.0 | uclibc, glibc |
 | T31 | 1.1.6 | 4.7.2, 5.4.0 | uclibc, glibc |
 | T32 | 1.0.6 | (direct) | uclibc, glibc |
+| T33 | 2.0.2.1 | 7.2.0 | uclibc, glibc |
 | T40 | 1.3.1 | 7.2.0 | uclibc, glibc |
 | T41 | 1.2.5 | 7.2.0 | uclibc, glibc |
+| A1  | 1.7.0 | 7.2.0 | uclibc, glibc |
 
 **Notes:**
 - T32 libraries are placed directly in `uclibc/` and `glibc/` without a GCC version subdirectory.
@@ -229,18 +231,18 @@ For T41 and A1 (dual NNA cores):
 
 ## 6. Library Availability Matrix (Core Libraries, Latest Version)
 
-| Library | T20 | T21 | T23 | T30 | T31 | T32 | T40 | T41 |
-|---|---|---|---|---|---|---|---|---|
-| libimp.so | Y | Y | Y | Y | Y | Y | Y | Y |
-| libimp.a | Y | Y | Y | Y | Y | Y | Y | Y |
-| libalog.so | Y | Y | Y | Y | Y | Y | Y | Y |
-| libalog.a | Y | Y | Y | Y | Y | Y | Y | Y |
-| libsysutils.so | Y | Y | Y | Y | Y | Y | Y | Y |
-| libsysutils.a | Y | Y | Y | Y | Y | Y | Y | Y |
-| libaudioProcess.so | Y | Y | Y | Y | Y | Y | Y | Y |
-| libaudioProcess.a | - | - | - | - | - | - | - | - |
+| Library | T20 | T21 | T23 | T30 | T31 | T32 | T33 | T40 | T41 | A1 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| libimp.so | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| libimp.a | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| libalog.so | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| libalog.a | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| libsysutils.so | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| libsysutils.a | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| libaudioProcess.so | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| libaudioProcess.a | - | - | - | - | - | - | - | - | - | - |
 
-All 8 SoCs have exactly the same 4 core libraries. `libaudioProcess` is always shared-only (no static archive).
+All 10 SoCs have exactly the same 4 core libraries. `libaudioProcess` is always shared-only (no static archive).
 
 ---
 
@@ -250,20 +252,20 @@ All 8 SoCs have exactly the same 4 core libraries. `libaudioProcess` is always s
 |---|---|---|
 | 4.7.2 | T20, T21, T30, T31 | Legacy MIPS toolchain |
 | 5.4.0 | T21, T23, T30, T31 | Standard Thingino toolchain |
-| 7.2.0 | T40, T41 | Required for XBurst2 ISA |
+| 7.2.0 | T33, T40, T41, A1 | Required for XBurst2 ISA |
 
 - T20 only supports gcc 4.7.2 (older MIPS ABI)
 - T21 and T30 support both 4.7.2 and 5.4.0
 - T23 only supports gcc 5.4.0 (no 4.7.2 builds available)
 - T31 supports both 4.7.2 and 5.4.0
 - T32 has no gcc version subdirectory (libraries work with the matching toolchain)
-- T40 and T41 only support gcc 7.2.0 (XBurst2 architecture)
+- T33, T40, T41, and A1 only support gcc 7.2.0 (XBurst2 architecture)
 
 For Thingino builds:
 - T20/T21/T30/T31: use gcc 5.4.0 uclibc (preferred) or 4.7.2 uclibc
 - T23: use gcc 5.4.0 uclibc (only option)
 - T32: use uclibc (direct, no gcc version selection)
-- T40/T41: use gcc 7.2.0 uclibc (only option)
+- T33/T40/T41/A1: use gcc 7.2.0 uclibc (only option)
 
 ---
 
