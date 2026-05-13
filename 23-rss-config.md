@@ -442,7 +442,12 @@ IR-cut filter and day/night control for RIC.
 
 **Photo trigger (EV + AWB, `trigger=photo`):**
 
-EV direction on Ingenic: HIGH ev = dark (more exposure), LOW ev = bright.
+```
+EV:  0 (bright) ────────────────────────────── 400K (dark)
+         │              │                  │
+     ev_day=5000   ev_night=50000   ev_deep=150000
+     ← day detect   night detect →   forced night →
+```
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|

@@ -200,6 +200,13 @@ On Ingenic, EV is the exposure product (integration time x gain):
 **HIGH ev = dark** (ISP compensating with more exposure), **LOW ev =
 bright**. All threshold comparisons follow this convention.
 
+```
+EV:  0 (bright) ────────────────────────────── 400K (dark)
+         │              │                  │
+     ev_day=5000   ev_night=50000   ev_deep=150000
+     ← day detect   night detect →   forced night →
+```
+
 ### Inputs
 
 - **EV**: exposure value from `IMP_ISP_Tuning_GetEVAttr` (T20-T31).
