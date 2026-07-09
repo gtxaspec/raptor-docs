@@ -214,6 +214,8 @@ T20 through T31.
 | `ao-set-sample-rate <Hz>` | Speaker sample rate |
 | `ao-mute` | Mute speaker (soft fade) |
 | `ao-unmute` | Unmute speaker (soft fade) |
+| `ao-flush` | Discard queued speaker audio (hardware buffer clear) |
+| `ao-drain` | Block until queued speaker audio has finished playing (3s cap) |
 | `ao-disable` | Tear down audio output pipeline |
 | `ao-enable` | Bring up audio output pipeline |
 
