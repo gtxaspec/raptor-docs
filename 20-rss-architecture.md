@@ -430,6 +430,32 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Timestamps**: Video DTS is derived from ring slot timestamps. Audio
   DTS is counter-based (sample count / sample rate), avoiding clock skew
   between ring producers.
+- **SEI timecode** (`sei_timecode`, default on): every recorded H.264/
+  H.265 frame is prefixed with a MISB ST 0604 Precision Time Stamp SEI
+  (user_data_unregistered, codec-specific identifier, ST 0603 time
+  status byte, 8-byte big-endian UTC microseconds with 0xFF guard
+  interleave — no emulation prevention needed by construction). Capture
+  UTC = ring slot timestamp + the producer's UTC mapping from the v4
+  ring header (`utc_offset_us`, seqlock-guarded, refreshed every 5 s by
+  RVD from `IMP_System_GetTimeStamp` vs `CLOCK_REALTIME`; the status
+  byte reports kernel NTP discipline via `adjtimex`). Prebuffered
+  frames replay with their true capture time. RSD independently sends
+  the same SEI to RTSP clients (`[rtsp] sei_timecode`).
+- **Provenance signing** (`sign`, default on): each file carries an
+  Ed25519 hash chain in 164-byte `uuid` boxes (identifier
+  `b050bf07-8856-4598-869e-44c4dc208f26`): box layout is size/type,
+  16-byte identifier, version, flags (bit 0 = final), 2 reserved,
+  8-byte key fingerprint (SHA-512(pubkey)[0..7]), 64-byte SHA-512 of
+  the span, 64-byte signature over `hash || prev_signature` (genesis
+  uses 64 zero bytes). Spans cover every byte between consecutive
+  boxes: init segment (genesis), each fragment group, and the mfra
+  tail (final box = clean close proof). Signing wraps the write
+  callbacks, so it is agnostic to fragment structure and covers the
+  SEI timecodes inside `mdat`. Key: 32-byte seed at `sign_key`,
+  generated from `/dev/urandom` on first use, public half exported as
+  `<sign_key>.pub` and via `raptorctl rmr export-pubkey`. Verify with
+  `rverify` (host or target); tampering reports the failing span,
+  truncated files verify up to the last complete box.
 - **Recording modes**:
   - `continuous`: always recording, segments rotated by `segment_minutes`.
   - `motion`: records only when triggered (via RMD or `raptorctl test-motion`).

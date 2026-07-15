@@ -323,6 +323,12 @@ All take effect on the next poll cycle (default 1 second).
 | `disable` | Disable all recording (closes active segments) |
 | `start` | Start motion clip (motion/both modes) |
 | `stop` | Stop motion clip |
+| `sign-status` | Provenance signing state + device key fingerprint |
+| `export-pubkey` | Ed25519 public key (hex) for `rverify -k` |
+
+`status` also reports `sign` and `sei_timecode` states. Verify signed
+recordings with `rverify -k <pubkey> file.mp4` (`-t` summarizes the
+embedded ST 0604 timecodes, `-T` dumps every frame's UTC).
 
 ---
 
