@@ -471,7 +471,7 @@ Media recording to SD card for RMR.
 | `stream` | int | `0` | Stream index (0=main, 1=sub, 2-5 for multi-sensor) |
 | `audio` | bool | `true` | Include audio |
 | `segment_minutes` | int | `5` | Segment rotation interval (minutes) |
-| `storage_path` | string | `/mnt/mmcblk0p1/raptor` | Recording path |
+| `storage_path` | string | `/mnt/mmcblk0p1/raptor` | Recording path. Auto-created when it resolves to mounted media (SD/NFS/SMB — any filesystem other than `/`); never auto-created on the root filesystem, so an absent SD card cannot spill recordings onto flash. RMR logs `waiting for storage` once a minute while unavailable and starts recording as soon as the media appears (hot-plug) |
 | `max_storage_mb` | int | `0` | Max storage (MB); 0=unlimited |
 | `prebuffer_sec` | int | `5` | Pre-event footage buffer (0-5 seconds) |
 | `clip_length_sec` | int | `60` | Motion clip max duration before rotation |
