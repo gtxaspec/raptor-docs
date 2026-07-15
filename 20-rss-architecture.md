@@ -279,6 +279,13 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   packetization are codec-aware: PCMU/PCMA use static payload types,
   AAC uses RFC 3640 (mpeg4-generic with AU header section), Opus uses
   RFC 7587 (48kHz RTP clock), L16 uses dynamic payload type with rtpmap.
+- **SEI timecode** (`[rtsp] sei_timecode`, default on): every H.264/
+  H.265 frame is sent with a MISB ST 0604 Precision Time Stamp SEI
+  carrying the frame's capture UTC (from the ring's v4 clock mapping).
+  Built once per frame in the reader thread and spliced into each
+  client's sendq copy before the first VCL NAL — refmode-safe, and the
+  timecode survives client-side copy recording (ffmpeg/NVRs). Skipped
+  for JPEG streams and rings without a UTC mapping.
 - **Backchannel**: SDP advertises a `sendonly` PCMU/8000 backchannel
   track (`a=control:backchannel`). Clients SETUP the backchannel track,
   then send RTP audio via TCP interleaved framing. RSD decodes PCMU to
@@ -999,10 +1006,20 @@ typedef struct __attribute__((aligned(64))) {
     _Atomic uint32_t  reader_count;
 #define RSS_RING_MAX_READERS 4
     _Atomic uint32_t  reader_pids[RSS_RING_MAX_READERS];
+
+    /* v4: producer UTC mapping — UTC(frame) = slot.timestamp +
+     * utc_offset_us. Seqlock-guarded (utc_gen odd while updating)
+     * because MIPS32 has no lock-free 64-bit atomics. offset 0 means
+     * no mapping published. utc_status carries the MISB ST 0603 time
+     * status byte (0x1F NTP-locked / 0x9F lock unknown). RVD
+     * refreshes every 5 s; consumers read via rss_ring_get_utc(). */
+    _Atomic uint32_t  utc_gen;
+    uint8_t           utc_status;
+    int64_t           utc_offset_us;
 } rss_ring_header_t;
 
 #define RSS_RING_MAGIC    0x52535352   /* "RSSR" */
-#define RSS_RING_VERSION  3            /* v3: adds reference mode */
+#define RSS_RING_VERSION  4            /* v3: reference mode; v4: UTC mapping */
 
 typedef struct {
     _Atomic uint64_t  seq;              /* sequence number when written */

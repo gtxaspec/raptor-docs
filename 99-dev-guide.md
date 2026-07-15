@@ -73,6 +73,7 @@ raptorctl/  -- CLI control tool
 ringdump/   -- Ring buffer debug/dump tool
 rlatency/   -- End-to-end RTSP latency measurement tool
 rac/        -- Audio playback and recording tool
+rverify/    -- Signed-recording verification tool (host + target)
 ```
 
 Only RVD and RAD link against the HAL. All other daemons are pure
@@ -393,10 +394,11 @@ leak/race detection. Fails fast if any stage fails.
 **Individual test suites:**
 
 ```sh
-# Unit tests (187 tests across 14 suites, ASAN)
+# Unit tests (193 tests across 16 suites, ASAN)
 cd tests && make test
 
-# Integration tests (46 tests — raptorctl, HTTP, RTSP, multi-client)
+# Integration tests (65 tests — raptorctl, HTTP, RTSP, multi-client,
+# SEI timecode, signed-recording verification)
 ./tests/test-integration.sh
 
 # Leak detection (lifecycle soak under LeakSanitizer)
@@ -406,8 +408,8 @@ cd tests && make test
 ./tests/test-leak.sh --tsan --duration 300 # TSAN + soak
 
 # Sibling repo tests
-cd raptor-ipc/tests && make test      # IPC tests (25 tests)
-cd raptor-common/tests && make test   # common tests (62 tests)
+cd raptor-ipc/tests && make test      # IPC tests (29 tests)
+cd raptor-common/tests && make test   # common tests (72 tests)
 ```
 
 **Fuzz targets (requires clang):**
@@ -426,7 +428,7 @@ GitHub Actions (`tests.yml`, manual dispatch):
 - **asan job**: full suite + 5-min soak under AddressSanitizer
 - **tsan job**: full suite + 5-min soak under ThreadSanitizer
 
-Both jobs build from scratch, run 187 unit tests + 46 integration
+Both jobs build from scratch, run 193 unit tests + 65 integration
 tests + lifecycle soak (concurrent clients, ring reconnect, clean
 shutdown). Logs are uploaded as artifacts on failure.
 

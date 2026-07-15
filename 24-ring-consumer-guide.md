@@ -263,6 +263,31 @@ The ring header carries stream metadata set by the producer:
 | `data_offset` | Internal (offset into data region) |
 | `data_length` | Frame payload size in bytes |
 
+### Converting timestamps to UTC
+
+`timestamp` runs on the producer's private media clock. Since ring
+version 4 the producer publishes a clock mapping in the header
+(seqlock-guarded, refreshed every 5 s so NTP steps propagate):
+
+```c
+/* Producer (RVD) */
+void rss_ring_set_utc(rss_ring_t *ring, int64_t offset_us, uint8_t status);
+
+/* Consumer: UTC(frame) = meta.timestamp + offset_us */
+int rss_ring_get_utc(rss_ring_t *ring, int64_t *offset_us, uint8_t *status);
+```
+
+`rss_ring_get_utc()` returns 0 on success, `-ENOENT` when the
+producer has not published a mapping (RFS playback, test harnesses —
+treat as "no wall clock available"), or `-EAGAIN` if a concurrent
+refresh persisted across the bounded retry (skip this frame, read
+again on the next). `status` is the MISB ST 0603 time status byte:
+`RSS_UTC_STATUS_LOCKED` (0x1F) when the producer's kernel clock is
+NTP-disciplined, `RSS_UTC_STATUS_UNLOCKED` (0x9F) otherwise. Call it
+per frame — it is a few atomic loads, and the offset changes as the
+producer re-syncs. RMR and RSD use this to build the per-frame
+ST 0604 timecode SEI.
+
 ---
 
 ## 5. Overflow Recovery

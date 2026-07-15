@@ -2,7 +2,7 @@
 
 Testing spans four layers: unit tests on x86 with AddressSanitizer,
 full-daemon ASAN integration with a mock HAL, on-device validation on
-real cameras, and performance benchmarking. 340 unit tests across the
+real cameras, and performance benchmarking. 444 unit tests across the
 raptor ecosystem pass under ASAN with zero errors.
 
 ---
@@ -15,25 +15,26 @@ single-header C test framework. Every test binary compiles with
 time. Raptor repos build and run tests with `make test` in each `tests/`
 directory. Compy uses CMake.
 
-### 1.1 raptor-common (62 tests, 5 suites)
+### 1.1 raptor-common (72 tests, 6 suites)
 
 | Suite | File | Tests | Coverage |
 |-------|------|------:|----------|
 | config | test_config.c | 20 | INI parser: load, get/set str/int/bool, sections, iteration, roundtrip, foreach, edge cases |
-| util | test_util.c | 17 | strlcpy, trim, starts_with, secure_compare — truncation, empty, exact fit |
+| util | test_util.c | 20 | strlcpy, trim, starts_with, secure_compare — truncation, empty, exact fit |
 | json | test_json.c | 6 | JSON string/int extraction, missing keys, truncation |
 | http | test_http.c | 10 | Base64 decode (padding, overflow), HTTP basic auth validation |
 | file | test_file.c | 9 | Read/write file, atomic write, mkdir_p, timestamp formatting |
+| sei | test_sei.c | 7 | MISB ST 0604 timecode SEI: H.264/H.265 byte layout, prefix modes, build/parse round-trip, no-start-code-emulation sweep, malformed rejection, multi-message NALs |
 
 ```
 cd raptor-common/tests && make test
 ```
 
-### 1.2 raptor-ipc (25 tests, 3 suites)
+### 1.2 raptor-ipc (29 tests, 3 suites)
 
 | Suite | File | Tests | Coverage |
 |-------|------|------:|----------|
-| ring | test_ring.c | 17 | SHM ring create/open, publish/read, sequential access, overflow detection and recovery, multi-consumer, data region wrap, keyframe seek, wait timeout, IOV publish, stream info, IDR request, demand count, dead reader reaping |
+| ring | test_ring.c | 21 | SHM ring create/open, publish/read, sequential access, overflow detection and recovery, multi-consumer, data region wrap, keyframe seek, wait timeout, IOV publish, stream info, IDR request, demand count, dead reader reaping, version/magic validation, UTC clock mapping (seqlock set/get, absent mapping, producer-only) |
 | osd | test_osd.c | 5 | OSD double-buffer lifecycle, publish/read, dirty flag, heartbeat |
 | ctrl | test_ctrl.c | 3 | Control socket roundtrip (threaded echo), handler error, stall timeout |
 
@@ -41,7 +42,7 @@ cd raptor-common/tests && make test
 cd raptor-ipc/tests && make test
 ```
 
-### 1.3 raptor (144 tests, 13 suites)
+### 1.3 raptor (193 tests, 16 suites)
 
 | Suite | File | Tests | Coverage |
 |-------|------|------:|----------|
@@ -58,6 +59,9 @@ cd raptor-ipc/tests && make test
 | rsp_audio | test_rsp.c | 6 | G.711 µ-law decode (minimum step, full range, symmetry), A-law decode (silence, full range), L16 byte-swap |
 | rsp_annexb | test_rsp.c | 4 | Start code detection (3-byte, 4-byte, none, multiple) |
 | rsp_state | test_rsp.c | 6 | RTMP state machine: set_chunk_size (incl. MSB mask), _result advancing connect/createStream, onStatus → publishing, _error → error state |
+| ctrl | test_ctrl.c | 43 | RVD control handlers against the mock HAL vtable: encoder get/set commands, table-driven enc-set/get/list, ISP commands, JSON error paths |
+| sign | test_sign.c | 3 | Recording signature chain: key generation/reload/pub export, span hash + Ed25519 chain verification, tamper and wrong-key rejection, empty-span no-op |
+| storage | test_storage.c | 3 | Storage availability: existing dir, auto-create on non-root filesystems, refusal to auto-create on the root filesystem |
 
 ```
 cd raptor/tests && make test
