@@ -394,6 +394,21 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   - GET-only: all other methods return `405 Method Not Allowed`.
 - **Client listing**: `raptorctl rhd clients` shows connected clients
   with IP and type (mjpeg/snapshot).
+- **EXIF capture time** (`[http] exif_timestamp`): snapshots and MJPEG
+  frames get a fixed-layout EXIF APP1 spliced after SOI in the shared
+  read buffer (in place, no extra copy): `DateTimeOriginal` (UTC),
+  `OffsetTimeOriginal +00:00`, `SubSecTimeOriginal` (µs). Frame time
+  is `slot.timestamp` + the ring v4 producer UTC mapping, falling
+  back to the wall clock when no mapping is published. Stale ring
+  frames keep their true capture time.
+- **Signed snapshots** (`[http] sign_snapshots`): `/snap.jpg` gets an
+  APP15 segment before EOI — raptor signing UUID, key fingerprint,
+  Ed25519 signature over every preceding byte (EXIF included) with
+  the device key from `[recording] sign_key` (shared with RMR,
+  race-safe first-boot generation). Decoders ignore APP15; the file
+  stays an ordinary JPEG. Verify: `rverify snapshot.jpg -k <pubkey>`.
+  MJPEG frames are not signed (per-frame Ed25519 at stream rate is
+  wasted work; sign the recording instead).
 - **Send architecture**: Per-client send threads for MJPEG and audio
   streaming. Unlike RSD, RHD reads rings in the main epoll loop (not a
   dedicated reader thread), so a barrier-based zero-copy design would

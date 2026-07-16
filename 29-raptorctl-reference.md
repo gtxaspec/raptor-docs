@@ -330,6 +330,11 @@ All take effect on the next poll cycle (default 1 second).
 recordings with `rverify -k <pubkey> file.mp4` (`-t` summarizes the
 embedded ST 0604 timecodes, `-T` dumps every frame's UTC).
 
+`rverify` also accepts a JPEG: it verifies the RHD snapshot signature
+(`[http] sign_snapshots`, same device key) and reports the EXIF
+capture time. RHD's `status` reports `exif_timestamp` and
+`sign_snapshots`.
+
 ---
 
 ## 13. RSP -- RTMP/RTMPS Push

@@ -328,6 +328,8 @@ HTTP server for snapshots and MJPEG streaming (RHD).
 | `https` | bool | `false` | Enable HTTPS |
 | `cert` | string | `/etc/ssl/certs/uhttpd.crt` | TLS certificate path |
 | `key` | string | `/etc/ssl/private/uhttpd.key` | TLS private key path |
+| `exif_timestamp` | bool | `true` (sample conf ships `false`) | Embed the frame capture time (UTC, µs; ring UTC mapping with wall-clock fallback) as EXIF `DateTimeOriginal`/`SubSecTimeOriginal` in `/snap.jpg` and every MJPEG frame |
+| `sign_snapshots` | bool | `true` (sample conf ships `false`) | Append an Ed25519 signature (APP15 segment before EOI, covers the whole image incl. EXIF) to `/snap.jpg` using the device key from `[recording] sign_key`; verify with `rverify snapshot.jpg -k <pubkey>` |
 
 ---
 
