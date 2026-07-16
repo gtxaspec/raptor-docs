@@ -277,7 +277,7 @@ and RSD-555 (live555-based). Both backends read from this section.
 | `rtcp_sr` | bool | `false` | Send RTCP Sender Reports (RSD only) |
 | `backchannel` | bool | `false` | Two-way audio (ONVIF Profile T, PCMU/8000) |
 | `out_buffer_size` | int | `262144` | live555 OutPacketBuffer max size (RSD-555 only) |
-| `sei_timecode` | bool | `true` | Send a MISB ST 0604 UTC timecode SEI with every video frame (RSD only; ~36 bytes/frame, spliced before the first VCL NAL; survives client-side `-c copy` recording) |
+| `sei_timecode` | bool | `true` (sample conf ships `false`) | Send a MISB ST 0604 UTC timecode SEI with every video frame (RSD only; ~36 bytes/frame, spliced before the first VCL NAL; survives client-side `-c copy` recording) |
 
 **Endpoint aliases:**
 
@@ -476,8 +476,8 @@ Media recording to SD card for RMR.
 | `prebuffer_sec` | int | `5` | Pre-event footage buffer (0-5 seconds) |
 | `clip_length_sec` | int | `60` | Motion clip max duration before rotation |
 | `clip_max_mb` | int | `100` | Max total clip storage (MB) |
-| `sei_timecode` | bool | `true` | Embed a MISB ST 0604 UTC timecode SEI in every recorded frame (H.264/H.265; skipped for MJPEG or when the ring has no UTC mapping) |
-| `sign` | bool | `true` | Sign recordings with an Ed25519 hash chain (uuid boxes; verify with `rverify`) |
+| `sei_timecode` | bool | `true` (sample conf ships `false`) | Embed a MISB ST 0604 UTC timecode SEI in every recorded frame (H.264/H.265; skipped for MJPEG or when the ring has no UTC mapping) |
+| `sign` | bool | `true` (sample conf ships `false`) | Sign recordings with an Ed25519 hash chain (uuid boxes; verify with `rverify`) |
 | `sign_key` | string | `/etc/raptor/sign_ed25519.key` | Signing key seed. Generated on first use; public key exported to `<sign_key>.pub` |
 
 **Provenance signing:** every segment and clip carries a chain of
