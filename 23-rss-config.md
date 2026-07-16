@@ -190,6 +190,17 @@ JPEG encoder channels that provide snapshots and MJPEG feeds.
 Per-stream overrides: set `jpeg`, `jpeg_quality`, `jpeg_fps` in
 `[streamN]` sections.
 
+`fps` is enforced by the encoder rate controller on T31 and newer.
+The older SDK generation (T20/T21/T23/T30) has no JPEG rate control
+(its divider only processes H.264/H.265), so there the HAL enforces
+the configured fps in `get_frame`, dropping early frames before they
+are copied out. Delivery follows the config on every SoC; on old
+SDKs the VPU still encodes at the framesource rate while a consumer
+holds the channel (`idle = true` stops it entirely when nobody is
+watching). A snapshot taken while the channel is already streaming
+can wait up to one fps interval for the next delivered frame;
+idle-wake snapshots are unaffected (the divider resets on start).
+
 ---
 
 ### `[ring]`
