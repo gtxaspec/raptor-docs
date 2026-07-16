@@ -357,13 +357,13 @@ endif
 define THINGINO_RAPTOR_BUILD_CMDS
     $(MAKE) PLATFORM=$(PLATFORM) CROSS_COMPILE=$(TARGET_CROSS) \
         SYSROOT=$(STAGING_DIR) $(THINGINO_RAPTOR_MAKE_OPTS) \
-        -C $(@D) rvd rsd rad rhd rod ric rmr rmd rwd rwc raptorctl ringdump rac
+        -C $(@D) rvd rsd rad rhd rod ric rmr rmd rwd rwc raptorctl ringdump rac rverify
 endef
 
 define THINGINO_RAPTOR_INSTALL_TARGET_CMDS
     $(foreach d,rvd rsd rad rhd rod ric rmr rmd rwd rwc,\
         $(INSTALL) -D -m 0755 $(@D)/$(d)/$(d) $(TARGET_DIR)/usr/bin/$(d)$(sep))
-    $(foreach t,raptorctl ringdump rac,\
+    $(foreach t,raptorctl ringdump rac rverify,\
         if [ -f $(@D)/$(t)/$(t) ]; then \
             $(INSTALL) -D -m 0755 $(@D)/$(t)/$(t) $(TARGET_DIR)/usr/bin/$(t); \
         fi$(sep))

@@ -15,7 +15,7 @@ single-header C test framework. Every test binary compiles with
 time. Raptor repos build and run tests with `make test` in each `tests/`
 directory. Compy uses CMake.
 
-### 1.1 raptor-common (72 tests, 6 suites)
+### 1.1 raptor-common (75 tests, 7 suites)
 
 | Suite | File | Tests | Coverage |
 |-------|------|------:|----------|
@@ -25,6 +25,7 @@ directory. Compy uses CMake.
 | http | test_http.c | 10 | Base64 decode (padding, overflow), HTTP basic auth validation |
 | file | test_file.c | 9 | Read/write file, atomic write, mkdir_p, timestamp formatting |
 | sei | test_sei.c | 7 | MISB ST 0604 timecode SEI: H.264/H.265 byte layout, prefix modes, build/parse round-trip, no-start-code-emulation sweep, malformed rejection, multi-message NALs |
+| jpeg | test_jpeg.c | 3 | EXIF capture-time insert/extract round-trip, APP15 Ed25519 sign/verify (tamper, wrong key, keyless presence check, unsigned input), capacity and non-JPEG rejection |
 
 ```
 cd raptor-common/tests && make test

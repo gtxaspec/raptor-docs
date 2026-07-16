@@ -409,7 +409,7 @@ cd tests && make test
 
 # Sibling repo tests
 cd raptor-ipc/tests && make test      # IPC tests (29 tests)
-cd raptor-common/tests && make test   # common tests (72 tests)
+cd raptor-common/tests && make test   # common tests (75 tests)
 ```
 
 **Fuzz targets (requires clang):**
