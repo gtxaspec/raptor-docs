@@ -194,12 +194,19 @@ Per-stream overrides: set `jpeg`, `jpeg_quality`, `jpeg_fps` in
 The older SDK generation (T20/T21/T23/T30) has no JPEG rate control
 (its divider only processes H.264/H.265), so there the HAL enforces
 the configured fps in `get_frame`, dropping early frames before they
-are copied out. Delivery follows the config on every SoC; on old
-SDKs the VPU still encodes at the framesource rate while a consumer
-holds the channel (`idle = true` stops it entirely when nobody is
-watching). A snapshot taken while the channel is already streaming
-can wait up to one fps interval for the next delivered frame;
-idle-wake snapshots are unaffected (the divider resets on start).
+are copied out. A snapshot taken while the channel is already
+streaming can wait up to one fps interval for the next delivered
+frame; on-demand snapshots are unaffected (fresh demand resets the
+pacing).
+
+On T20/T21/T30 a continuously receiving JPEG channel additionally
+costs the H.264 streams ~25% encoder throughput (fixed per-frame
+scheduling on the shared VPU; T23 and newer parts are unaffected),
+so on those SoCs RVD duty-cycles the channel: it receives only
+around each configured frame and stops in between, keeping the main
+streams at full rate while an MJPEG viewer is attached (measured on
+T21: 18.3 → 24.0 of 25 fps). `idle = true` still stops the encoder
+entirely when nobody is watching.
 
 ---
 
