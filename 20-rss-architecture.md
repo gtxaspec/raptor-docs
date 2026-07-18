@@ -343,11 +343,15 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   audio from being collateral damage when video IDR bursts fill the
   shared sendq.
 - **RTCP Sender Reports**: Configurable via `rtcp_sr` in `[rtsp]`
-  (default off). When enabled, SR fires every 30 seconds from the send
-  thread. The NTP timestamp uses CLOCK_MONOTONIC (via `pthread_once`
+  (default on). SR fires every 5 seconds per track from the send
+  thread, with the first one ~1s after PLAY so NVR probe windows see
+  it. The NTP timestamp uses CLOCK_MONOTONIC (via `pthread_once`
   for thread-safe init). The RTP timestamp is extrapolated to the SR
-  send instant using `last_send_time_us`. SR is disabled by default
-  because it adds measurable jitter on single-core SoCs.
+  send instant using `last_send_time_us`. NVRs (ffmpeg/Frigate/go2rtc)
+  use the SR NTP<->RTP pair for cross-stream A/V sync; without periodic
+  SRs, audio (sample-count timeline) drifts from video (capture-clock
+  timeline) in long recordings. Cost is negligible (~120 bytes per
+  track per 5s; T23 rsd CPU unchanged at 3-8% streaming).
 - **SDP**: Includes `a=type:broadcast`, `a=range:npt=now-`, and
   `o=- 0 0 IN IP4 0.0.0.0` to match live555 format for VLC
   compatibility. PLAY response uses `Range: npt=0.000-`.
@@ -2302,13 +2306,18 @@ rate regardless of software delivery timing.
 accuracy depends on the delay between keyframe and first audio frame
 (0-64ms, one audio frame duration).
 
-**RTCP SR**: Disabled by default (`rtcp_sr = false` in `[rtsp]` config).
-When enabled, fires every 30 seconds from the video/audio send path.
-NTP timestamp derived from `CLOCK_MONOTONIC` with a one-time offset
-to NTP epoch (thread-safe via `pthread_once`). RTP timestamp extrapolated
-to the SR send instant via `last_send_time_us` per RFC 3550 §6.4.1.
-Disabled by default because the SR write adds measurable jitter on
-single-core SoCs.
+**RTCP SR**: Enabled by default (`rtcp_sr` in `[rtsp]` config). Fires
+every 5 seconds per track from the video/audio send path, first SR
+~1s after PLAY (RFC 3550 recommends ~5s; the old 30s cadence missed
+every NVR probe window). NTP timestamp derived from `CLOCK_MONOTONIC`
+with a one-time offset to NTP epoch (thread-safe via `pthread_once`).
+RTP timestamp extrapolated to the SR send instant via
+`last_send_time_us` per RFC 3550 §6.4.1. NVR-side ffmpeg uses the SR
+NTP<->RTP pair to align audio against video; the audio RTP timeline is
+sample-count synthesis, so without SRs it drifts from the video
+capture clock in long recordings (Frigate desync reports). Verified on
+T23: cross-track SR mapping consistent to ~-30..-50ms (known audio
+pipeline latency), rsd CPU unchanged while streaming.
 
 **Measured results (T31 ethernet, 120s):**
 
