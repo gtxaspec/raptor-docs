@@ -239,6 +239,11 @@ ring buffers. Exactly one instance of each runs per camera.
   per frame. SDK audio timestamps (`IMPAudioFrame.timeStamp`) are ignored
   on all platforms — they use a different clock domain from the encoder on
   some SoCs (T31), causing A-V sync overflow when cross-referenced.
+  The synthetic clock is slewed toward `CLOCK_MONOTONIC` each chunk
+  (`RAD_SYNTH_*`): beyond 150ms it hard-resyncs and warns (samples lost
+  in the SDK, or a stall), outside a 20ms jitter band it nudges 1ms.
+  Without the slew, ADC crystal error and invisible SDK-side sample loss
+  accumulate as unbounded A/V drift in every consumer.
 - **Outputs**: Audio SHM ring (input/encoding path).
 - **Inputs**: Speaker SHM ring (output/playback path).
 - **Thread model**: Main thread (AI read loop + control socket), AO
@@ -494,8 +499,12 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   frame count (not timestamps) to avoid A/V desync across rings.
 - **Clip management**: Each clip has its own `clip_write` callback and file
   descriptor — no fd-swapping between continuous and clip muxers.
-  Independent DTS bases (video from timestamp, audio from counter) ensure
-  clip timestamps always start from zero. `clip_length_sec` caps clip
+  Independent DTS bases ensure clip timestamps always start from zero:
+  video from ring timestamp; audio a smooth sample counter steered
+  toward ring timestamps (`steer_audio_dts`: snap forward on >4-frame
+  gaps so the file gets an honest gap, re-base if ring time regresses,
+  1ms nudge inside the band) — a free counter would inherit source-clock
+  drift and turn ring-overflow gaps into a permanent A/V offset. `clip_length_sec` caps clip
   duration; if motion continues, a new clip is opened without pre-buffer.
 - **Testing**: `raptorctl test-motion [seconds]` sends start/stop directly
   to RMR, bypassing RMD cooldown. Default 10 seconds.
@@ -2313,10 +2322,15 @@ every NVR probe window). NTP timestamp derived from `CLOCK_MONOTONIC`
 with a one-time offset to NTP epoch (thread-safe via `pthread_once`).
 RTP timestamp extrapolated to the SR send instant via
 `last_send_time_us` per RFC 3550 §6.4.1. NVR-side ffmpeg uses the SR
-NTP<->RTP pair to align audio against video; the audio RTP timeline is
-sample-count synthesis, so without SRs it drifts from the video
-capture clock in long recordings (Frigate desync reports). Verified on
-T23: cross-track SR mapping consistent to ~-30..-50ms (known audio
+NTP<->RTP pair to align audio against video when SRs are present.
+The audio RTP timeline itself is a smooth frame-cadence counter
+steered toward ring capture time (snap forward on >4-frame gaps,
+re-anchor if ring time regresses, 1ms nudge inside the band), so it
+stays wall-true even for clients that never see SRs — notably go2rtc,
+which strips RTCP SRs and RTP-Info from its restream (Frigate's
+standard topology). Bench-proven on T23 with an injected +5000ppm
+source-clock error: recordings via go2rtc with SRs off measure ~0ppm.
+Cross-track SR mapping consistent to ~-30..-50ms (known audio
 pipeline latency), rsd CPU unchanged while streaming.
 
 **Measured results (T31 ethernet, 120s):**
