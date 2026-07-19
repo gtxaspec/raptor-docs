@@ -167,12 +167,31 @@ generation).
 | VmRSS drift over 1 hour | <100KB |
 | FD count drift over 1 hour | 0 |
 
-### 3.3 Automated Device Test Suite (Planned)
+### 3.3 raptor-test: Live Stream Conformance Suite
 
-A shell script (`raptor/tests/device/device-test.sh`) will SSH from a
-build host into T31/T41 devices and verify: daemon health (pidof),
-RTSP reachability (ffprobe), HTTP snapshot (curl), control socket
-(raptorctl), log cleanliness, and resource usage. Not yet implemented.
+`raptor-test` (its own repo, sibling to raptor) is the automated
+on-device validation harness. It runs from a build host against any
+live RTSP endpoint and exercises what unit and ASAN tests structurally
+cannot: real client sessions over TCP and UDP, several client
+implementations, concurrent viewers with join/leave churn, wire-level
+RTP inspection, decoded-content validation (measured fps, resolution,
+audio sample rate), RFC 2326/4566/3550/3640 conformance including
+PAUSE and malformed-request robustness, NVR recording through go2rtc
+and dockerized Frigate, recorded-clip verification, fault injection
+(abruptly killed clients), and device health over SSH.
+
+```
+raptor-test rtsp://CAM:554/ch0 --sub rtsp://CAM:554/ch1 \
+    --ssh root@CAM --go2rtc http://HOST:1984 --frigate \
+    --record-check /path/to/recordings
+```
+
+Run it after any change that touches streaming, timestamps, codecs,
+or session handling. Checks self-skip when a feature is absent, so it
+also works against non-raptor servers for comparison. See the
+raptor-test README for the full check table and design notes; its
+checks encode every ad-hoc miss made during bring-up (case-sensitive
+grep, orphaned client processes, truncated evidence pipelines).
 
 ---
 
