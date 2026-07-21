@@ -31,6 +31,15 @@ sensor-independent — it's the ISP's target luminance measurement.
 If ae_luma < night_luma (default 20) for hysteresis_sec (default 5)
 consecutive polls → switch to NIGHT
 
+`ae_luma` source differs by SDK generation: Gen1/2 report the
+vendor's post-processing luma (`GetAeLuma`, or EV on T20/T21/T30);
+Gen3 (T32/T33/T40/T41) has no direct luma API, so the HAL computes
+the mean of the 256-bin AE histogram (`GetAeStatistics`). The
+histogram is linear-domain, so Gen3 values run lower for the same
+scene (bright indoor ~50 vs ~100+ on Gen1/2). The default threshold
+of 20 works on both, but tuned thresholds do not transfer across
+generations.
+
 Additionally: if total_gain > night_gain (default 80000), force NIGHT
 immediately regardless of ae_luma. This handles sensors where high gain
 pushes luma above the threshold despite near-darkness.
