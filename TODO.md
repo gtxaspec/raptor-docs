@@ -86,7 +86,16 @@ the ispmem bootarg - untested until a t31 unit gets the bootarg
 carve. Remaining for `rvd save bayer`: per-SoC ispmem bootarg in
 thingino (menuconfig option sizing SIZE = sensor w*h*2 rounded up),
 per-generation arg syntax (vinum vs savenum), rvd handler = echo cmd
-+ wait for /tmp/snapN.raw + rename; verify per-SoC blob support via
-strings on each unit's tx-isp ko as bench units come up. T41 bench
++ wait for /tmp/snapN.raw + rename; HW-verified platform matrix (2026-07-23, all with ispmem carve +
+streaming pipeline): T21 ov2735b 1920x1080 TRUE BAYER; T30 sc4236
+2048x1536 TRUE BAYER; T31 (Z55 gc4653 2560x1440 + pan blob
+identical) TRUE BAYER; T41 gc4023 2560x1440 TRUE BAYER. T20: NOT
+SUPPORTED - first-gen tx-isp-t20.ko has no snapraw and no isp-w02
+node (only register dumps); its only theoretical path is old-SDK
+userland PIX_FMT_RAW, untested. Output naming differs: 3.10 t21/t30
+write /tmp/snap.raw (no digit), t31/t41 write /tmp/snapN.raw. All
+frames = w*h*2 (RAW10/12 MSB-aligned 16le); 3.10 arg = savenum
+('snapraw 1'), gen3 = vinum ('snapraw 0'). All test envs restored to
+stock afterward. T41 bench
 env left carved (revert: osmem 74M@0x0, drop ispmem, original
 bootcmd without ispmem=).
