@@ -10,7 +10,7 @@ docs in this repo.
 ## 1. What Raptor Is
 
 RSS is an embedded streaming platform for Ingenic MIPS IP cameras
-(T20, T21, T23, T30, T31, T32, T33, T40, T41, and A1). It replaces a
+(T10, T20, T21, T23, T30, T31, T32, T33, T40, T41, and A1). It replaces a
 monolithic streamer with isolated single-purpose daemons communicating
 via shared memory rings and Unix control sockets. On SoCs without an
 ISP (A1), RFS acts as the video source instead of RVD.
