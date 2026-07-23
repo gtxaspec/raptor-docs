@@ -101,9 +101,10 @@ ONLY T20 (SDK 3.12) honors it. T21 (1.0.33) and T31 (1.1.6) coerce
 to NV12; T30 (1.0.5) refuses EnableChn on a RAW channel at any
 resolution; T41 (1.2.5) standalone test segfaults in vendor init
 (OSD pool didn't help - retest someday as an in-rvd probe where init
-is known-good); T23 untested (bench unit has no usb-eth modules for
-binary transport) but its kernel blob has snapraw + isp-w02 like the
-rest. DESIGN CONSEQUENCE for rvd save bayer: the kernel
+is known-good); T23 TESTED (1.3.0): coerces to NV12
+like T31/T21 (NV12 fourcc, w*h*1.5). Its kernel blob has snapraw +
+isp-w02 + the ispmem parser, so the kernel road applies (mechanism
+verified, end-to-end run still pending an ispmem carve). DESIGN CONSEQUENCE for rvd save bayer: the kernel
 snapraw+ispmem road is the COMMON mechanism (T21/T23/T30/T31/T41);
 T20 is the exception that uses its userland road (and needs it,
 having no kernel mechanism). Per-SoC ispmem menuconfig in thingino
