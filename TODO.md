@@ -103,19 +103,36 @@ resolution; T41 (1.2.5) standalone test segfaults in vendor init
 (OSD pool didn't help - retest someday as an in-rvd probe where init
 is known-good); T23 TESTED (1.3.0): coerces to NV12
 like T31/T21 (NV12 fourcc, w*h*1.5). Its kernel blob has snapraw +
-isp-w02 + the ispmem parser, so the kernel road applies (mechanism
-verified, end-to-end run still pending an ispmem carve). IMPLEMENTED (raptor 9f094b2): `raptorctl rvd
-save bayer` ships both roads. Kernel road covers T21/T23/T30/T31/T41
--- and gen3 needs NO ispmem carve (HW-verified: T41 captures on
-fully stock bootargs; the 'set ispmem first' help text is legacy).
-3.10 SoCs DO need the carve (A/B proven on the z55: streaming +
-correct command + no ispmem = silent no-op; carved = capture), so
-uncarved units return the explicit prerequisite error. T20 uses the
-userland road with a respond-then-re-exec recovery (old-SDK VBM
-does not survive an in-place RAW cycle; in-process reinit wedges in
+isp-w02 + the ispmem parser, so the kernel road applies.
+
+IMPLEMENTED (raptor 69cd1766bab9171687b6359aa2bc391a5a185c8c):
+`raptorctl rvd save bayer` ships both roads. RESOLVED per-SoC truth
+(2026-07-23, every cell HW-run): the 3.10 blobs carry TWO verbs and
+they are NOT synonyms. `snapraw` DMAs into the ispmem= region (its
+'set ispmem first' help is accurate); `saveraw` buffers internally
+and needs NO carve. The earlier "3.10 needs ispmem" A/B on the z55
+had tested snapraw only - saveraw was the missing experiment. rvd
+now sends: gen3 (T40/T41) "snapraw 0" (internal buffer; stock boot
+proven on T41); T21/T23/T31 "saveraw 1" (stock uncarved boots
+proven: t21 ov2735b 4147200B, t23 sc2336 4147200B, z55 gc4653
+7372800B, mosaic-verified). T30 is the sole exception: its VIC is
+open source and implements ONLY snapraw, allocating from the
+ispmem pool (isp_malloc_buffer in tx-isp-videobuf.c returns 0 when
+no region exists, hence the silent instant no-file), so T30 alone
+needs a carve sized sensor w*h*2. Proven on the vdb1:
+mem=80M@0x0 ispmem=6M@0x5000000 (6M = 2048x1536x2 exact fit,
+injected via fw_setenv osmem, left in place on the bench unit);
+capture + mosaic + stream-survives all pass. Uncarved T30 returns
+the explicit prerequisite error and touches nothing. The thingino
+menuconfig-carve idea is DEAD; at most a T30-profile bootarg tweak
+remains if t30 bayer ever matters in images. T20 uses the userland
+road with a respond-then-re-exec recovery (old-SDK VBM does not
+survive an in-place RAW cycle; in-process reinit wedges in
 System_Exit). Fallout fixes shipped: rss_daemon pidfile O_CLOEXEC
-(raptor-common 75d83e8), rsd zero-progress-overflow ring reopen
-(raptor 70ebc78), gen3 no-EOI jpeg relax in save jpeg + ringdump.
+(raptor-common 75d83e8bd2c6d2a2c8ef2b8a7040d74b84236d04), rsd
+zero-progress-overflow ring reopen (raptor
+70ebc787bed25ac532889ad714fe60e37b33e14e), gen3 no-EOI jpeg relax
+in save jpeg + ringdump.
 
 REMAINING: thingino menuconfig option adding the ispmem= carve for
 T21/T23/T30/T31 only (size = sensor w*h*2 rounded up; gen3 and T20
