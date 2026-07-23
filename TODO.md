@@ -69,9 +69,24 @@ So gen2 has no Bayer path via the framesource; the vendor tuning
 tool's RAW grab rides their tuning-server protocol into ISP
 internals - not worth the RE.
 
-Next: rerun the experiment (scratchpad bayer-snap-test.c pattern) on
-gen3 - T40/T41 headers add PIX_FMT_RAW8/RAW16, which gen2 lacks, so
-support is plausibly real there (IMPVI-style APIs). Old SDK is also
-untested and the T21 dev guide claims sample-Framesource saves raw.
-If any platform delivers true Bayer, add RSS_PIXFMT_RAW* to the HAL
-and a bayer format branch to rvd save.
+SOLVED PATH (2026-07-23, T41 HW-proven): the tx-isp VIC proc node.
+`echo snapraw <vinum> > /proc/jz/isp/isp-w02` (gen3 arg = VI number,
+0 for single-sensor; the 3.10 help text says savenum instead) dumps
+one pre-ISP sensor frame to /tmp/snap0.raw. Prerequisites: (1) the
+`ispmem=SIZE@ADDR` bootarg - a reserved region outside mem=/rmem=
+(T41 test: osmem 74M->66M, ispmem=8M@0x4200000; full RAW16 frame =
+w*h*2, 2560x1440 = 7.37MB); (2) the pipeline streaming (VIC active,
+rvd up) - EPERM otherwise. Verified true Bayer: RAW10 MSB-aligned in
+16-bit LE, RGGB mosaic parity flipping per row; ffmpeg -f rawvideo
+-pix_fmt bayer_rggb16le demosaics it. T41 blob also has `mode`,
+`dir`, and saveraw variants. Kernel side: ispmem_parse exists in ALL
+six 3.10 xburst platform.c files AND the 4.4 T41 kernel; the t31
+blob has the same proc commands (savenum syntax) but the pan lacks
+the ispmem bootarg - untested until a t31 unit gets the bootarg
+carve. Remaining for `rvd save bayer`: per-SoC ispmem bootarg in
+thingino (menuconfig option sizing SIZE = sensor w*h*2 rounded up),
+per-generation arg syntax (vinum vs savenum), rvd handler = echo cmd
++ wait for /tmp/snapN.raw + rename; verify per-SoC blob support via
+strings on each unit's tx-isp ko as bench units come up. T41 bench
+env left carved (revert: osmem 74M@0x0, drop ispmem, original
+bootcmd without ispmem=).
