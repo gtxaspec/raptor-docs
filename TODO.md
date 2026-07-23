@@ -45,3 +45,14 @@ copy is valid iff reserved_now - slot_abs_end <= data_size - length.
 New header + slot fields = RSS_RING_VERSION bump = flag-day rebuild
 of every producer and consumer, plus ASAN/TSAN + full battery pass.
 Schedule deliberately; do not drive-by.
+
+## Fix mock-HAL frame-buffer provenance (test harness)
+
+The leak/race stage flakes with an ASAN stack-use-after-return: the
+mock HAL's enc_get_frame hands rvd_encoder_thread NAL pointers whose
+backing region ASAN attributes to a retired stack frame, so
+rss_ring_publish_iov's memcpy trips. Pre-existing (documented since
+the dual-producer note); purely a tests/mock_hal.c + leak-harness
+issue - device builds are unaffected. Fix the mock to serve its
+frames from a stable heap/mmap region sized per channel, then drop
+the "known flaky" caveat from test-all expectations.
