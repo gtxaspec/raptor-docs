@@ -175,14 +175,25 @@ live RTSP endpoint and exercises what unit and ASAN tests structurally
 cannot: real client sessions over TCP and UDP, several client
 implementations, concurrent viewers with join/leave churn, wire-level
 RTP inspection, decoded-content validation (measured fps, resolution,
-audio sample rate), RFC 2326/4566/3550/3640 conformance including
-PAUSE and malformed-request robustness, NVR recording through go2rtc
-and dockerized Frigate, recorded-clip verification, fault injection
-(abruptly killed clients), and device health over SSH.
+audio sample rate), GOP periodicity (and exact configured length via
+`--gop`), RFC 2326/4566/3550/3640 conformance including PAUSE and
+malformed-request robustness, ONVIF backchannel (client-to-camera
+audio with device-side speaker-ring evidence), MJPEG over RTSP
+(`/jpeg`), WebRTC through a real WHIP client including talk-back,
+audio-only sources (auto-detected from the SDP), NVR recording
+through go2rtc and dockerized Frigate, recorded-clip verification,
+fault injection (abruptly killed clients), and device health over
+SSH: CPU, connection baseline, daemon-log error sweep, and
+framesource drop counters. A `--soak <minutes>` endurance mode
+replaces the battery with repeated bounded captures plus RSS/FD
+trending.
 
 ```
 raptor-test rtsp://CAM:554/ch0 --sub rtsp://CAM:554/ch1 \
-    --ssh root@CAM --go2rtc http://HOST:1984 --frigate \
+    --user thingino --pass thingino --ssh root@CAM --gop 60 \
+    --rhd https://CAM:8443 --srt srt://CAM:9000 \
+    --webrtc "https://CAM:8554/whip?stream=1" \
+    --go2rtc http://HOST:1984 --frigate \
     --record-check /path/to/recordings
 ```
 

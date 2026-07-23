@@ -213,6 +213,18 @@ reading. Producers use `reader_count` to make on-demand decisions
 Call `acquire` when you start reading, `release` when you stop.
 `open` / `close` do **not** touch the demand counter.
 
+A long-lived consumer that forgets this fails subtly, not loudly:
+the producer sees zero demand and never encodes, the consumer sees
+no writes and (if it idle-closes) detaches, and every layer above —
+SETUP/PLAY signaling, session keepalive — keeps answering 200 while
+zero frames flow. RSD's RTSP jpeg streams shipped with exactly this
+bug (fixed in raptor 5fb0fc267e3f3e436d71525b2cd54357bb982bfd): its
+ring reader open()ed without `acquire` and idle-closed after 2s
+without writes, deadlocking against RVD's reader-gated JPEG pulse.
+If your consumer serves downstream clients of its own, hold both the
+`acquire` and the mapping for as long as any client is attached, and
+idle-close only when your own demand is gone.
+
 ### IDR Request
 
 ```c

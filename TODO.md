@@ -166,3 +166,11 @@ Two concrete findings from reading the decompiled libimp per SoC:
    routed (T20->bayer, T21/T23/T30->NV12). So on T21/T23/T30 there is
    NO userland path to 12-bit bayer - kernel snapraw is the only road.
    Not a missing knob; the mechanism genuinely isn't exposed.
+
+## rwd: answer recvonly when there is no audio source
+
+rwd answers WebRTC offers with `a=sendrecv` audio even when no audio
+ring exists, promising outgoing audio it will never send. Clients
+that judge "audio decodes to samples" then fail against audio-less
+cameras. Answer `recvonly` (or `inactive` without backchannel) when
+`has_audio` is false. Found by raptor-test's talk-back check.
