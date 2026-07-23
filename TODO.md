@@ -115,3 +115,26 @@ frames = w*h*2 (RAW10/12 MSB-aligned 16le); 3.10 arg = savenum
 stock afterward. T41 bench
 env left carved (revert: osmem 74M@0x0, drop ispmem, original
 bootcmd without ispmem=).
+
+### libimp decomp cross-check (2026-07-23, ~/libimp-analysis)
+Two concrete findings from reading the decompiled libimp per SoC:
+1. GEN3 T41 HAS A DEDICATED USERLAND RAW API we never tried:
+   IMP_ISP_RAW_RwControl(IMPVI_MAIN, &IMPISPRawRwAttr) - vendor-
+   documented (imp_isp.h:4148), blob-exported (6 refs). Sets
+   dtype=TISP_RAW_DTYPE_RAW16, mtype=TISP_RAW_MODULE_START, nrvbs<=4,
+   and a frame_done callback that receives IMPISPRawRwInfo {vinum,
+   width, height, dtype, vaddr}. Taps raw sensor data to DDR and
+   calls back with the buffer - NO ispmem carve, NO kernel proc node.
+   THIS is the clean gen3 userland raw path; our earlier gen3 attempt
+   wrongly used framesource PIX_FMT_RAW and segfaulted. T41-ONLY among
+   gen3 (T32/T33/T40 headers lack it). TODO: implement a save-bayer
+   gen3 branch on this API (callback plumbing + a real capture struct;
+   needs a working gen3 init, so do it in-rvd not standalone).
+2. OLD-SDK userland dead-end confirmed: all four old-SDK allocators
+   (T20/T21/T23/T30) size the same four 12-bit bayer fourccs
+   (BG12/BA12/GB12/RG12) but the header exposes only *8-bit* BAYER
+   enums (PIX_FMT_BAYER_*8=30..33); requesting those fails VBM alloc
+   (size=-1, HW-confirmed on T23). Generic PIX_FMT_RAW is kernel-
+   routed (T20->bayer, T21/T23/T30->NV12). So on T21/T23/T30 there is
+   NO userland path to 12-bit bayer - kernel snapraw is the only road.
+   Not a missing knob; the mechanism genuinely isn't exposed.
