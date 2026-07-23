@@ -96,11 +96,18 @@ carries "RAW is only channel == 0 !"): fs chn0 attr PIX_FMT_RAW ->
 enable -> SetFrameDepth(1) -> GetFrame yields fourcc BG12 (BGGR
 12-bit MSB-aligned 16le), 1920x1080x2, lag-ratio 1.39 bayer-side +
 per-row parity flip, kernel V4L2 negotiation logs BG12. NO ispmem
-bootarg needed. So old-SDK units get bayer through the HAL/userland
-(rvd-integrable directly); gen2 T31 userland coerces to NV12 so it
-needs the kernel snapraw+ispmem road; gen3 kernel road proven, its
-userland PIX_FMT_RAW8/16 untested (might also avoid ispmem - worth
-one experiment). Output naming differs: 3.10 t21/t30
+bootarg needed. Userland PIX_FMT_RAW swept across the fleet (2026-07-23):
+ONLY T20 (SDK 3.12) honors it. T21 (1.0.33) and T31 (1.1.6) coerce
+to NV12; T30 (1.0.5) refuses EnableChn on a RAW channel at any
+resolution; T41 (1.2.5) standalone test segfaults in vendor init
+(OSD pool didn't help - retest someday as an in-rvd probe where init
+is known-good); T23 untested (bench unit has no usb-eth modules for
+binary transport) but its kernel blob has snapraw + isp-w02 like the
+rest. DESIGN CONSEQUENCE for rvd save bayer: the kernel
+snapraw+ispmem road is the COMMON mechanism (T21/T23/T30/T31/T41);
+T20 is the exception that uses its userland road (and needs it,
+having no kernel mechanism). Per-SoC ispmem menuconfig in thingino
+covers everything except T20. Output naming differs: 3.10 t21/t30
 write /tmp/snap.raw (no digit), t31/t41 write /tmp/snapN.raw. All
 frames = w*h*2 (RAW10/12 MSB-aligned 16le); 3.10 arg = savenum
 ('snapraw 1'), gen3 = vinum ('snapraw 0'). All test envs restored to
