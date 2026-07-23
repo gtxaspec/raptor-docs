@@ -89,10 +89,18 @@ per-generation arg syntax (vinum vs savenum), rvd handler = echo cmd
 + wait for /tmp/snapN.raw + rename; HW-verified platform matrix (2026-07-23, all with ispmem carve +
 streaming pipeline): T21 ov2735b 1920x1080 TRUE BAYER; T30 sc4236
 2048x1536 TRUE BAYER; T31 (Z55 gc4653 2560x1440 + pan blob
-identical) TRUE BAYER; T41 gc4023 2560x1440 TRUE BAYER. T20: NOT
-SUPPORTED - first-gen tx-isp-t20.ko has no snapraw and no isp-w02
-node (only register dumps); its only theoretical path is old-SDK
-userland PIX_FMT_RAW, untested. Output naming differs: 3.10 t21/t30
+identical) TRUE BAYER; T41 gc4023 2560x1440 TRUE BAYER. T20: SUPPORTED
+via a DIFFERENT road - the first-gen tx-isp-t20.ko has no snapraw/
+isp-w02, but old-SDK USERLAND PIX_FMT_RAW is genuine there (libimp
+carries "RAW is only channel == 0 !"): fs chn0 attr PIX_FMT_RAW ->
+enable -> SetFrameDepth(1) -> GetFrame yields fourcc BG12 (BGGR
+12-bit MSB-aligned 16le), 1920x1080x2, lag-ratio 1.39 bayer-side +
+per-row parity flip, kernel V4L2 negotiation logs BG12. NO ispmem
+bootarg needed. So old-SDK units get bayer through the HAL/userland
+(rvd-integrable directly); gen2 T31 userland coerces to NV12 so it
+needs the kernel snapraw+ispmem road; gen3 kernel road proven, its
+userland PIX_FMT_RAW8/16 untested (might also avoid ispmem - worth
+one experiment). Output naming differs: 3.10 t21/t30
 write /tmp/snap.raw (no digit), t31/t41 write /tmp/snapN.raw. All
 frames = w*h*2 (RAW10/12 MSB-aligned 16le); 3.10 arg = savenum
 ('snapraw 1'), gen3 = vinum ('snapraw 0'). All test envs restored to
