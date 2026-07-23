@@ -56,3 +56,22 @@ the dual-producer note); purely a tests/mock_hal.c + leak-harness
 issue - device builds are unaffected. Fix the mock to serve its
 frames from a stable heap/mmap region sized per channel, then drop
 the "known flaky" caveat from test-all expectations.
+
+## Bayer sensor-RAW capture (gen3 experiment pending)
+
+Goal: `raptorctl rvd save bayer` alongside jpeg/raw(NV12).
+Findings so far (2026-07-23, pure-IMP experiment on the pan, T31
+SDK 1.1.6): `PIX_FMT_RAW` on fs chn0 enables but the blob silently
+delivers NV12 (frame reports FOURCC NV12, w*h*1.5 size, 128-centered
+chroma plane, no mosaic column parity); chn2 refuses to enable RAW at
+all. SetFrameDepth only works on an ENABLED channel (order matters).
+So gen2 has no Bayer path via the framesource; the vendor tuning
+tool's RAW grab rides their tuning-server protocol into ISP
+internals - not worth the RE.
+
+Next: rerun the experiment (scratchpad bayer-snap-test.c pattern) on
+gen3 - T40/T41 headers add PIX_FMT_RAW8/RAW16, which gen2 lacks, so
+support is plausibly real there (IMPVI-style APIs). Old SDK is also
+untested and the T21 dev guide claims sample-Framesource saves raw.
+If any platform delivers true Bayer, add RSS_PIXFMT_RAW* to the HAL
+and a bayer format branch to rvd save.
