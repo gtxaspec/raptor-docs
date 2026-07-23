@@ -175,9 +175,36 @@ T20 through T31.
 | `get-wb` | White balance mode and gains |
 | `get-exposure` | Current exposure (gain, luma, EV, WB gains) |
 
----
+### Snapshot Capture
 
-## 5. RSD -- RTSP Server
+| Command | Description |
+|---------|-------------|
+| `save jpeg <file> [ch]` | Save one JPEG from the jpeg ring (default: jpeg channel) |
+| `save raw <file> [ch]` | Save one NV12 frame via transient SetFrameDepth+GetFrame |
+| `save bayer <file>` | Save one pre-ISP sensor RAW frame (16-bit LE, w*h*2 bytes) |
+
+The response is JSON: `status`, `file`, `format`, and for raw/bayer
+`pixfmt`, `width`, `height`, `bytes`. Files land wherever `<file>`
+points on the camera filesystem.
+
+**Bayer per-platform mechanics.** Values are 12-bit (10-bit on some
+sensors) MSB-aligned in 16-bit little-endian words; demosaic with
+`ffmpeg -f rawvideo -pix_fmt bayer_bggr16le` (match the sensor's
+pattern from `/proc/jz/isp/isp-m0`).
+
+| Platform | Road | Boot requirement |
+|----------|------|------------------|
+| T20 | userland: fs chn0 flips to PIX_FMT_RAW for one frame | none |
+| T21/T23/T31 | kernel: `saveraw` VIC debug node (self-buffered) | none |
+| T30 | kernel: `snapraw` VIC debug node (ispmem-backed; the only verb its VIC has) | `ispmem=` bootarg carve sized sensor w*h*2 (6M covers 4MP); without it the command fails with an explicit error |
+| T40/T41 | kernel: `snapraw 0` (internal buffer) | none |
+
+On T20 the old-SDK buffer pool does not survive the RAW format
+cycle: the daemon responds with `stream_restart: true`, then
+re-execs itself for a clean pipeline. Streams drop for a few
+seconds and clients reconnect (rsd reopens rings automatically).
+On all other platforms streams are untouched. The pipeline must be
+streaming for the kernel road (VIC active).
 
 | Command | Description |
 |---------|-------------|
