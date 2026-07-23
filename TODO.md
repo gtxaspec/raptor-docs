@@ -104,11 +104,22 @@ resolution; T41 (1.2.5) standalone test segfaults in vendor init
 is known-good); T23 TESTED (1.3.0): coerces to NV12
 like T31/T21 (NV12 fourcc, w*h*1.5). Its kernel blob has snapraw +
 isp-w02 + the ispmem parser, so the kernel road applies (mechanism
-verified, end-to-end run still pending an ispmem carve). DESIGN CONSEQUENCE for rvd save bayer: the kernel
-snapraw+ispmem road is the COMMON mechanism (T21/T23/T30/T31/T41);
-T20 is the exception that uses its userland road (and needs it,
-having no kernel mechanism). Per-SoC ispmem menuconfig in thingino
-covers everything except T20. Output naming differs: 3.10 t21/t30
+verified, end-to-end run still pending an ispmem carve). IMPLEMENTED (raptor 9f094b2): `raptorctl rvd
+save bayer` ships both roads. Kernel road covers T21/T23/T30/T31/T41
+-- and gen3 needs NO ispmem carve (HW-verified: T41 captures on
+fully stock bootargs; the 'set ispmem first' help text is legacy).
+3.10 SoCs DO need the carve (A/B proven on the z55: streaming +
+correct command + no ispmem = silent no-op; carved = capture), so
+uncarved units return the explicit prerequisite error. T20 uses the
+userland road with a respond-then-re-exec recovery (old-SDK VBM
+does not survive an in-place RAW cycle; in-process reinit wedges in
+System_Exit). Fallout fixes shipped: rss_daemon pidfile O_CLOEXEC
+(raptor-common 75d83e8), rsd zero-progress-overflow ring reopen
+(raptor 70ebc78), gen3 no-EOI jpeg relax in save jpeg + ringdump.
+
+REMAINING: thingino menuconfig option adding the ispmem= carve for
+T21/T23/T30/T31 only (size = sensor w*h*2 rounded up; gen3 and T20
+need nothing). Output naming differs: 3.10 t21/t30
 write /tmp/snap.raw (no digit), t31/t41 write /tmp/snapN.raw. All
 frames = w*h*2 (RAW10/12 MSB-aligned 16le); 3.10 arg = savenum
 ('snapraw 1'), gen3 = vinum ('snapraw 0'). All test envs restored to
