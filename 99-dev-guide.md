@@ -394,7 +394,7 @@ leak/race detection. Fails fast if any stage fails.
 **Individual test suites:**
 
 ```sh
-# Unit tests (193 tests across 16 suites, ASAN)
+# Unit tests (204 tests across 17 suites, ASAN)
 cd tests && make test
 
 # Integration tests (65 tests — raptorctl, HTTP, RTSP, multi-client,
@@ -409,7 +409,7 @@ cd tests && make test
 
 # Sibling repo tests
 cd raptor-ipc/tests && make test      # IPC tests (29 tests)
-cd raptor-common/tests && make test   # common tests (75 tests)
+cd raptor-common/tests && make test   # common tests (86 tests)
 ```
 
 **Fuzz targets (requires clang):**
@@ -428,7 +428,7 @@ GitHub Actions (`tests.yml`, manual dispatch):
 - **asan job**: full suite + 5-min soak under AddressSanitizer
 - **tsan job**: full suite + 5-min soak under ThreadSanitizer
 
-Both jobs build from scratch, run 193 unit tests + 65 integration
+Both jobs build from scratch, run 204 unit tests + 65 integration
 tests + lifecycle soak (concurrent clients, ring reconnect, clean
 shutdown). Logs are uploaded as artifacts on failure.
 

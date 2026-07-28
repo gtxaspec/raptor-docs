@@ -115,6 +115,17 @@ Parsing rules:
 - `ir850`: 850nm IR LED GPIO (mapped to `gpio_irled`)
 - `ir940`: 940nm IR LED GPIO (mapped to `gpio_irled2`)
 
+Behavior (`ric/ric_json.c`, unit-tested in `tests/test_ric_json.c`):
+- Only pins still at -1 are filled; raptor.conf stays authoritative.
+- The whole file is read, bounded by a 64 KB cap; the file routinely
+  exceeds 2 KB on thingino since several packages append to it.
+- A missing file is silent (normal off thingino). A file that exists
+  but cannot be used — unreadable, over-cap, empty, or unparseable —
+  warns, since the failure is otherwise indistinguishable from the
+  file being absent. Parsed-but-no-`gpio`-object is debug only.
+- On success RIC logs `GPIOs from /etc/thingino.json: ...` with all
+  four pins.
+
 ### GPIO Control
 
 Single GPIO mode: pin HIGH = day (filter closed), LOW = night (filter open).
@@ -348,7 +359,8 @@ tuning per device. Not recommended for new deployments.
 
 ## Files
 
-- `ric/ric_main.c` — config loading, thingino.json GPIO discovery, main loop
+- `ric/ric_main.c` — config loading, main loop
+- `ric/ric_json.c` — thingino.json GPIO discovery
 - `ric/ric_daynight.c` — GPIO control, mode switching, detection dispatch
 - `ric/ric_photo.c` — multi-stage EV + AWB photo detection algorithm
 - `ric/ric.h` — state, config, and photo mode structures

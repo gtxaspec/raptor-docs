@@ -16,6 +16,8 @@ single INI file. An example with all options (commented out) ships in
   (case-insensitive).
 - **Integers:** Decimal or `0x` hex prefix.
 - **Max lengths:** Line 512 chars, section name 64, key 64, value 256.
+  A line over the limit is rejected whole with a warning (never
+  silently truncated into a shorter value plus a bogus next line).
 - **Default path:** `/etc/raptor.conf` (compile-time `RSS_CONFIG_PATH`).
   Override with `-c <path>` on any daemon.
 

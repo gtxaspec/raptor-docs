@@ -15,17 +15,19 @@ single-header C test framework. Every test binary compiles with
 time. Raptor repos build and run tests with `make test` in each `tests/`
 directory. Compy uses CMake.
 
-### 1.1 raptor-common (75 tests, 7 suites)
+### 1.1 raptor-common (86 tests, 9 suites)
 
 | Suite | File | Tests | Coverage |
 |-------|------|------:|----------|
-| config | test_config.c | 20 | INI parser: load, get/set str/int/bool, sections, iteration, roundtrip, foreach, edge cases |
+| config | test_config.c | 22 | INI parser: load, get/set str/int/bool, sections, iteration, roundtrip, foreach, edge cases incl. over-long lines rejected whole (no silent value truncation) and exactly-buffer-filling final lines |
 | util | test_util.c | 20 | strlcpy, trim, starts_with, secure_compare — truncation, empty, exact fit |
 | json | test_json.c | 6 | JSON string/int extraction, missing keys, truncation |
 | http | test_http.c | 10 | Base64 decode (padding, overflow), HTTP basic auth validation |
 | file | test_file.c | 9 | Read/write file, atomic write, mkdir_p, timestamp formatting |
 | sei | test_sei.c | 7 | MISB ST 0604 timecode SEI: H.264/H.265 byte layout, prefix modes, build/parse round-trip, no-start-code-emulation sweep, malformed rejection, multi-message NALs |
 | jpeg | test_jpeg.c | 3 | EXIF capture-time insert/extract round-trip, APP15 Ed25519 sign/verify (tamper, wrong key, keyless presence check, unsigned input), capacity and non-JPEG rejection |
+| aac | test_aac.c | 6 | AudioSpecificConfig generation: LC and HE-AAC (BC syncExtension form), rate index mapping, invalid rates |
+| ts | test_ts.c | 3 | MPEG-TS mux: PMT descriptors, Opus channel config, PAT/PMT layout |
 
 ```
 cd raptor-common/tests && make test
@@ -43,10 +45,11 @@ cd raptor-common/tests && make test
 cd raptor-ipc/tests && make test
 ```
 
-### 1.3 raptor (193 tests, 16 suites)
+### 1.3 raptor (204 tests, 17 suites)
 
 | Suite | File | Tests | Coverage |
 |-------|------|------:|----------|
+| ric_json | test_ric_json.c | 11 | thingino.json GPIO discovery: int and dual-string pins, raptor.conf precedence, range limits, missing/empty/garbage/no-gpio/over-cap files, and the >2 KB document with pins at the tail (regression for the truncated-read bug) |
 | nal | test_nal.c | 12 | Annex B → AVCC conversion (H.264, H.265, 3-byte start codes), empty/overflow, single NAL, SPS/PPS extraction |
 | prebuf | test_prebuf.c | 9 | Pre-buffer push/count, slot eviction, keyframe find by age, frame-at lookup, iterate with data verification, data region wrap integrity |
 | mux | test_mux.c | 17 | fMP4 box construction (moov/moof/mdat/mfra), H.264/H.265/PCMU/AAC/Opus codec paths, multi-fragment, large timestamps (64-bit tfdt), CTS offset, empty/double flush, A/V duration verification |
