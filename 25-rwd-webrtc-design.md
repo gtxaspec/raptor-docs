@@ -159,7 +159,10 @@ Browser mic → getUserMedia → RTCPeerConnection (sendrecv audio)
 
 ### SDP negotiation
 
-Audio m-line is `a=sendrecv`. SDP answer includes both `opus/48000/2`
+Audio m-line direction states what RWD will actually do (RFC 3264
+§6.1): `a=sendrecv` when the audio ring exists, `a=recvonly` when the
+camera has no audio source — the backchannel (browser mic → speaker)
+works either way. SDP answer includes both `opus/48000/2`
 and `PCMU/8000`. Browser JS uses `setCodecPreferences([PCMU, Opus])`
 to prefer PCMU, falling back to Opus (decoded via libopus).
 
@@ -167,8 +170,8 @@ to prefer PCMU, falling back to Opus (decoded via libopus).
 
 `getUserMedia()` requires a secure context. RWD serves HTTPS by default
 using the same cert/key as DTLS (`[webrtc] https = true`). The Talk
-button only appears when the SDP answer contains `a=sendrecv` and
-`navigator.mediaDevices` is available.
+button only appears when the SDP answer contains `a=sendrecv` or
+`a=recvonly` and `navigator.mediaDevices` is available.
 
 ### Codec handling
 
