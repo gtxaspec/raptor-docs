@@ -401,6 +401,13 @@ cd tests && make test
 # SEI timecode, signed-recording verification)
 ./tests/test-integration.sh
 
+# RIC behavior suite (stub rvd + fake sysfs GPIO in a user
+# namespace; RIC_SUITE_STRICT=1 turns skips into failures)
+./tests/test-ric.sh
+
+# IPv6-first / IPv4-fallback proof for every listening daemon
+./tests/test-net-fallback.sh
+
 # Leak detection (lifecycle soak under LeakSanitizer)
 ./tests/test-leak.sh
 ./tests/test-leak.sh --duration 300        # 5-min soak
@@ -473,12 +480,26 @@ sanitizer warnings or test failures.
   `rvd: add stream-stop and stream-start IPC commands`
 - **Prefix with the component:** `rvd:`, `rad:`, `raptorctl:`,
   `hal:`, `rsd:`, `build:`, `tests:`, etc.
-- **No signatures.** Just a clear commit message.
+- **No signatures, no trailers.** No `Co-Authored-By`, no
+  `Signed-off-by`, nothing after the message body. External PRs are
+  landed with the author preserved and any trailer stripped.
 - **Don't push without explicit instruction.** Build and test
   locally first. Confirm with the maintainer before pushing.
 - **Don't create releases** without explicit instruction.
 - **One logical change per commit.** A new feature is one commit.
   A bug fix is one commit. Don't bundle unrelated changes.
+- **Behavior changes arrive test-first.** Reproduce the defect as a
+  failing test, then fix it. A field bug earns its missing scenario
+  class, not just a regression leg.
+- **Diagnostics are mutation-checked.** A warning or counter that no
+  test can force to fire is not tested: break the diagnostic in the
+  ways that matter (removed, unthrottled, unreset) and know which leg
+  catches each. State plainly which mutations the legs do not pin.
+- **Networking is IPv6-first.** Listeners bind the v6 wildcard
+  dual-stack and fall back to v4 only on the no-IPv6 errnos, via the
+  `rss_net.h` helpers -- never open-coded per daemon. Outbound uses
+  `AF_UNSPEC` getaddrinfo. `tests/test-net-fallback.sh` enforces both
+  directions.
 
 ---
 

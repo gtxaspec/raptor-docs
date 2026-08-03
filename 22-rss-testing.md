@@ -138,6 +138,44 @@ before release:
 | HIGH | Storage cleanup walked directory with `readdir()` on the recording path without re-opening on each rotation | `opendir`/`closedir` now called per-cleanup pass |
 | HIGH | Segment file path buffer (256 bytes) could overflow with long base paths | Buffer increased to `PATH_MAX`; truncation now caught |
 
+### 2.4 RIC Behavior Suite
+
+`tests/test-ric.sh` drives ric through every trigger, opmode, GPIO
+topology and failure mode with no hardware and no privileges. The
+harness (`tests/ric_harness.py`) runs inside an unprivileged
+`unshare -rm` namespace where everything ric touches is fake and
+observable:
+
+- **AE**: a stub `rvd.sock` speaking the real length-prefixed ctrl
+  protocol serves a scriptable scene and records `set-running-mode`
+  calls. It can die and come back to drive outage scenarios.
+- **GPIO**: tmpfs over `/sys` with pre-created `gpioN` files;
+  `gpio_export()` takes its already-exported path, so every actuation
+  is a plain write observed via inotify -- sequences and pulse widths.
+- **ADC**: an LD_PRELOAD shim (`tests/ric_adc_shim.c`) stands in for
+  `/dev/ingenic_adc_aux_N`, backed by a rewritable file. The shim
+  intercepts both `read` and the fortified `__read_chk`, appends to a
+  hit counter the scenarios assert on, and is unit-checked by
+  `tests/ric_shim_probe.c` before every run -- a broken shim is a hard
+  error, not a green suite.
+- **Discovery**: an overlay over `/etc` owns `thingino.json`, so
+  boards-as-shipped (pins from discovery, every flag at default) are a
+  scenario class, not an accident. That class exists because a
+  940nm-only board shipped through a fully-explicit-config suite.
+
+One fresh ric per scenario keeps baselines and warn-once state clean.
+`RIC_SUITE_STRICT=1` refuses to skip anything (inert shim included).
+Diagnostics scenarios are mutation-checked -- see the dev guide.
+
+### 2.5 Network Fallback Suite
+
+`tests/test-net-fallback.sh` proves the IPv6-first policy both ways:
+one pass native (every listening daemon must come up dual-stack and
+answer on `::1`), one pass under `tests/net_noipv6_shim.c`, which
+refuses `socket(AF_INET6)` with `EAFNOSUPPORT` the way a kernel built
+without IPv6 does (every daemon must fall back to IPv4, log it, and
+keep serving -- including rsr's SRT rebind after a failed v6 bind).
+
 ---
 
 ## 3. On-Device Validation

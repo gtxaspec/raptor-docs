@@ -439,7 +439,8 @@ IR-cut filter and day/night control for RIC.
 | `gpio_irled` | int | `-1` | 850nm IR LED GPIO (-1=auto from /etc/thingino.json) |
 | `gpio_irled2` | int | `-1` | 940nm IR LED GPIO (-1=auto from /etc/thingino.json) |
 | `ir850` | bool | `true` | Enable 850nm IR LED (visible glow, stronger illumination) |
-| `ir940` | bool | `false` | Enable 940nm IR LED (invisible, weaker illumination) |
+| `ir940` | bool | `false` | Enable 940nm IR LED (invisible, weaker illumination). Auto-enabled after pin discovery when 940 is the board's only bank and no `ir940` key is set; an explicit `false` wins |
+| `pulse_ms` | int | `10` | Dual-GPIO ircut coil pulse width in ms (1-1000). 10 matches the thingino `ircut` script's fleet-proven timing |
 
 **Luma trigger (default):**
 

@@ -115,6 +115,12 @@ Parsing rules:
 - `ir850`: 850nm IR LED GPIO (mapped to `gpio_irled`)
 - `ir940`: 940nm IR LED GPIO (mapped to `gpio_irled2`)
 
+If discovery finds a 940nm pin and no 850nm pin, and the config carries
+no explicit `ir940` key, the 940 bank is enabled automatically -- the
+opt-in default exists for boards where 940 is the secondary bank, and a
+board whose only bank stayed dark sat blind at night with a clean log.
+An explicit `ir940 = false` still wins.
+
 Behavior (`ric/ric_json.c`, unit-tested in `tests/test_ric_json.c`):
 - Only pins still at -1 are filled; raptor.conf stays authoritative.
 - The whole file is read, bounded by a 64 KB cap; the file routinely
@@ -130,7 +136,11 @@ Behavior (`ric/ric_json.c`, unit-tested in `tests/test_ric_json.c`):
 
 Single GPIO mode: pin HIGH = day (filter closed), LOW = night (filter open).
 
-Dual GPIO mode (motor driver): pulse pin1/pin2 HIGH for 100ms, then both LOW.
+Dual GPIO mode (motor driver): pulse pin1/pin2 HIGH for `pulse_ms`
+(default 10ms, matching the timing the thingino `ircut` shell script
+has always driven the fleet with), then both LOW. Both 10ms and 100ms
+measured 20/20 reliable on a dual-GPIO Wyze Cam3; the knob exists for
+mechanisms that disagree. Clamped 1-1000ms.
 
 IR LED: HIGH = on, LOW = off. Controlled via sysfs (`/sys/class/gpio`).
 
@@ -155,7 +165,11 @@ gpio_ircut2 = -1              # second pin for dual motor mode
 gpio_irled = -1               # 850nm IR LED pin (-1 = auto)
 gpio_irled2 = -1              # 940nm IR LED pin (-1 = auto)
 ir850 = true                  # enable 850nm LED (visible glow, stronger)
-ir940 = false                 # enable 940nm LED (invisible, weaker)
+ir940 = false                 # enable 940nm LED (invisible, weaker);
+                              # auto-enabled after discovery when 940 is
+                              # the ONLY bank the board has and no ir940
+                              # key is set -- the only bank must light
+pulse_ms = 10                 # dual-GPIO ircut coil pulse width (1-1000)
 
 # Photo trigger thresholds (trigger=photo only)
 # EV direction: HIGH ev = dark (more exposure), LOW ev = bright
@@ -187,6 +201,56 @@ Changes take effect on the next poll cycle.
 
 ---
 
+## Missing Exposure Fields
+
+Zero in an exposure field means "this backend cannot answer for that
+field" -- the contract raptor-hal documents in `hal_isp.c`. A live
+sensor never reports a mean luma of exactly 0, so nothing real is lost
+by treating it as absent. Every term of the luma trigger is gated on
+its field being reported:
+
+- **Gain but no luma** (e.g. Gen3 when `GetAeStatistics` fails): runs
+  on the gain terms alone.
+- **Luma but no gain**: no gain means no night baseline and no ratio,
+  so night→day falls back to the inverse of the day→night test
+  (`luma >= night_luma`) -- but only when no IR bank is active. With
+  IR LEDs lit that fallback is an oscillator: IR lifts luma over the
+  threshold, day mode cuts the LEDs, the scene darkens, night triggers
+  again, and the filter clicks all night. Boards without IR keep the
+  recovery; boards with IR hold night, the lesser failure.
+- **Everything zero** (a HAL with no exposure readback at all): the
+  mode holds where it stands, one warning names the situation, and
+  manual `raptorctl ric mode` plus `trigger = adc` keep working. Before
+  this, `0 < night_luma` read silence as darkness and pinned any such
+  platform in night mode permanently.
+- **Photo without ev**: every phase of the photo machine compares
+  against ev, so with none reported the trigger demotes itself to luma
+  with one line rather than idling silently -- an ev-less platform
+  would otherwise also calibrate its AWB baseline from zeros.
+
+---
+
+## Diagnostics
+
+The failure modes of this daemon are silent by nature: a frozen
+day/night looks exactly like a scene that does not change. Every
+dependency RIC polls therefore reports sustained failure, rate-limited,
+and reports recovery with the outage length:
+
+- **rvd unreachable**: warned after 10 seconds of failed queries --
+  a routine rvd restart takes a few seconds and stays quiet -- then at
+  most once a minute. The per-poll `RVD query failed` line stays at
+  DEBUG.
+- **ADC channel dead**: warned after 2 seconds of failed reads (see
+  the ADC section).
+- **GPIO writes**: a value node that cannot be opened or written is
+  named per actuation -- it is an ircut or LED silently not moving.
+
+All thresholds are written in seconds and converted through
+`poll_interval_ms`, so they mean the same thing at any poll rate.
+
+---
+
 ## ADC Trigger Mode
 
 RIC supports a third trigger mode using an external photoresistor
@@ -202,9 +266,18 @@ adc_night = 200     # ADC value below this → switch to night
 adc_day = 600       # ADC value above this → switch to day
 ```
 
-The ADC library (`libsysutils.so`) is loaded at runtime via `dlopen`.
-If unavailable, RIC falls back to luma mode with a warning. The same
-`hysteresis_sec` debounce applies to ADC transitions.
+The channel is a kernel device node (`/dev/ingenic_adc_aux_N`, with
+`/dev/jz_adc_aux_N` as the older name), opened directly. If it cannot
+be opened or enabled, RIC warns and falls back to the luma trigger.
+The same `hysteresis_sec` debounce applies to ADC transitions.
+
+A channel that opens and then stops answering is reported too: after
+two seconds of failed reads a warning names the outage and the mode
+day/night is frozen in, repeats at most once a minute, and the first
+good read afterwards logs the outage length. The ADC trigger is also
+exempt from the all-zero exposure hold below -- the photoresistor
+reads its own sensor and must keep polling when the ISP reports
+nothing.
 
 ---
 
@@ -290,8 +363,11 @@ don't produce sufficient R/B deviation.
 ### Day Detection (DAY_DETECT phase)
 
 Runs when in night mode. Collects 10 EV samples into a ring buffer
-when EV drops below `photo_ev_day` (bright scene). Compares the
-last sample against a reference using ratio thresholds:
+when EV drops below `photo_ev_day` (bright scene). The first full
+ring whose ends agree within the stability band seeds the reference
+(the same way the interference and fixed-EV detectors seed theirs);
+after that, the last sample is compared against it using ratio
+thresholds:
 
 - Sample >= reference x 1.13: too dark, reset ring.
 - Sample within 0.87-1.13 of reference: moderate day signal,
