@@ -704,6 +704,11 @@ These daemons control hardware peripherals and do not process frame data.
   - `raptorctl ric isp-mode <day|night>` — ISP running mode only, no GPIO
     toggling. Useful for cameras without IR-cut hardware, or for testing
     ISP color processing independently of the filter.
+  - `raptorctl ric ircut <day|night>`, `ir850 <on|off>`, `ir940 <on|off>`
+    — one piece of hardware each, no ISP call, no mode change; the next
+    automatic transition reasserts what auto manages. The LED commands
+    ignore the enable flags: manual is explicit intent, and lighting a
+    disabled bank from the shell is the bench-debugging move.
 - **Why separate**: Day/night switching involves GPIO manipulation, ISP
   mode changes, and hysteresis logic. Isolating it keeps the video daemon
   simple and allows the control algorithm to be replaced or tuned without
@@ -932,6 +937,9 @@ Pipeline commands:
 | `rwd share-rotate` | Generate new share key |
 | `ric mode <auto\|day\|night>` | Set day/night mode (GPIO + ISP) |
 | `ric isp-mode <day\|night>` | ISP running mode only (no GPIO) |
+| `ric ircut <day\|night>` | IR-cut filter alone (auto reasserts later) |
+| `ric ir850 <on\|off>` | 850nm bank alone (ignores enable flag) |
+| `ric ir940 <on\|off>` | 940nm bank alone (ignores enable flag) |
 | `rmd sensitivity <0-4>` | Set motion sensitivity |
 | `rmd skip-frames <N>` | Set IVS skip frame count |
 

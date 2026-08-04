@@ -187,10 +187,22 @@ raptorctl ric mode auto       # resume auto detection
 raptorctl ric mode day        # force day mode
 raptorctl ric mode night      # force night mode
 raptorctl ric status          # show mode, state, exposure
+raptorctl ric ircut day|night # drive the IR-cut filter alone
+raptorctl ric ir850 on|off    # drive the 850nm LED bank alone
+raptorctl ric ir940 on|off    # drive the 940nm LED bank alone
 raptorctl ric get-thresholds  # show all threshold values
 raptorctl ric set-threshold night_luma 30    # change threshold at runtime
 raptorctl ric set-threshold hysteresis_sec 3
 ```
+
+The manual hardware commands drive one piece each and change no
+state: no ISP call, no mode change. The next automatic transition
+reasserts whatever auto manages, and the response carries the
+operating mode so the caller knows that can happen. The LED commands
+deliberately ignore the `ir850`/`ir940` enable flags -- those gate
+automatic behavior, while a manual command is explicit intent, and
+lighting a disabled bank from the shell is exactly what bench
+debugging needs.
 
 Tunable keys: `night_luma` (0-255), `night_gain` (>=0),
 `day_gain_pct` (1-100), `night_threshold` (>=0), `day_threshold`

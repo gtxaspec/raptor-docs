@@ -296,6 +296,9 @@ streaming for the kernel road (VIC active).
 |---------|-------------|
 | `mode <auto\|day\|night>` | Set operating mode (controls GPIO + ISP) |
 | `isp-mode <day\|night>` | Set ISP running mode only (no GPIO change) |
+| `ircut <day\|night>` | Drive the IR-cut filter alone; the next auto transition reasserts |
+| `ir850 <on\|off>` | Drive the 850nm LED bank alone (ignores the enable flag) |
+| `ir940 <on\|off>` | Drive the 940nm LED bank alone (ignores the enable flag) |
 | `set-threshold <key> <val>` | Tune day/night threshold (see below) |
 | `get-thresholds` | Show all threshold values and trigger mode |
 
