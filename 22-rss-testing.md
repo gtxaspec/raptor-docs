@@ -2,10 +2,9 @@
 
 Testing spans four layers: unit tests on x86 with AddressSanitizer,
 full-daemon ASAN integration with a mock HAL, on-device validation on
-real cameras, and performance benchmarking. 444 unit tests across the
+real cameras, and performance benchmarking. 447 unit tests across the
 raptor ecosystem pass under ASAN with zero errors.
 
----
 
 ## 1. Unit Test Inventory
 
@@ -175,6 +174,22 @@ answer on `::1`), one pass under `tests/net_noipv6_shim.c`, which
 refuses `socket(AF_INET6)` with `EAFNOSUPPORT` the way a kernel built
 without IPv6 does (every daemon must fall back to IPv4, log it, and
 keep serving -- including rsr's SRT rebind after a failed v6 bind).
+
+### 2.6 RAC Beep Suite
+
+`tests/test-rac.sh` exercises `rac beep` with no rad and no hardware:
+argument validation, then a real 1 kHz / 1 s beep published to the
+speaker ring, captured with `ringdump -d` and verified sample-exact --
+count, peak amplitude, frequency via zero crossings, DC offset, and
+both raised-cosine ramps. Writing it is what exposed the ring
+newest-frame off-by-one: the final 20 ms chunk of every finite stream
+was unreadable until a successor frame existed (`test_ring.c` even
+carried "publish a dummy to make the previous frame readable"
+helpers). The payload checks would have passed on a lossy capture
+padded with silence; sample-exact totals are what made the missing
+tail visible.
+
+---
 
 ---
 

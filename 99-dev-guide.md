@@ -405,6 +405,9 @@ cd tests && make test
 # namespace; RIC_SUITE_STRICT=1 turns skips into failures)
 ./tests/test-ric.sh
 
+# RAC beep suite (no rad needed; ring capture verified sample-exact)
+./tests/test-rac.sh
+
 # IPv6-first / IPv4-fallback proof for every listening daemon
 ./tests/test-net-fallback.sh
 
