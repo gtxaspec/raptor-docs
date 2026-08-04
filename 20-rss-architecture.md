@@ -948,6 +948,9 @@ Pipeline commands:
 - **Role**: CLI tool for audio playback and recording.
 - **Commands**:
   - `rac play <file|->` -- play audio to speaker (PCM16, MP3, AAC, Opus)
+  - `rac beep [-f hz] [-d ms] [-r rate]` -- synthesized sine beep to the
+    speaker, no audio file needed (defaults 1000 Hz, 200 ms, 16 kHz;
+    0.35 amplitude with 5 ms raised-cosine ramps against clicks)
   - `rac record <file|-> [-d sec]` -- record mic to PCM16 LE file
   - `rac status` -- show audio daemon status
   - `rac ao-volume <val>` -- set speaker volume
@@ -965,7 +968,10 @@ Pipeline commands:
 #### ringdump
 
 - **Role**: SHM ring buffer inspector for debugging.
-- **Usage**: `ringdump <ring> [-f] [-d] [-n N]`
+- **Usage**: `ringdump <ring> [-f] [-d] [-n N] [-s]`
+- Reads before waiting, so a finite stream (e.g. `rac beep`) is drained
+  to its final frame. `-s` starts past the newest published frame and
+  waits for the next one.
 
 ---
 
@@ -1136,8 +1142,10 @@ void         rss_ring_set_stream_info(rss_ring_t *ring,
  *   Also checks the incarnation counter on every read to detect
  *   producer restart.
  *
- *   Each consumer tracks its own read_seq. If read_seq < write_seq,
- *   the consumer has fallen behind and reads the next available slot.
+ *   Each consumer tracks its own read_seq. Sequences are 1-based and
+ *   write_seq is release-stored after the slot is complete, so
+ *   seq == write_seq (the newest published frame) is readable
+ *   immediately -- consumers never run a frame behind the producer.
  *   If the consumer has fallen behind far enough that its data was
  *   overwritten, rss_ring_read() returns RSS_EOVERFLOW and advances
  *   read_seq to the oldest valid slot.

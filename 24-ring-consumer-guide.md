@@ -77,15 +77,19 @@ int main(int argc, char **argv)
 
 	uint64_t read_seq = 0;
 	while (running) {
-		if (rss_ring_wait(ring, 100) != 0)
-			continue;
-
 		uint32_t length;
 		rss_ring_slot_t meta;
+
+		/* Read first, wait only on -EAGAIN. rss_ring_wait() blocks on
+		 * the futex changing from its value at call time, so waiting
+		 * with frames still pending can only time out -- a wait-first
+		 * loop never drains the final frames of a stream. */
 		int ret = rss_ring_read(ring, &read_seq, buf, buf_size,
 					&length, &meta);
-		if (ret == -EAGAIN)
+		if (ret == -EAGAIN) {
+			rss_ring_wait(ring, 100);
 			continue;
+		}
 		if (ret == RSS_EOVERFLOW) {
 			fprintf(stderr, "overflow at seq %llu, re-syncing\n",
 				(unsigned long long)read_seq);
