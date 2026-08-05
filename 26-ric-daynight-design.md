@@ -64,10 +64,39 @@ independent because we compare against the same sensor's own baseline.
 After switching to night:
   - 3-poll cooldown for IR/ISP stabilization
   - Sample total_gain as night_gain_baseline (e.g., 16143)
+  - Clamp: baseline = max(sample, detection_gain / 10)
   - Compute day trigger = baseline × day_gain_pct / 100 (e.g., 4036)
+
+While in night: baseline = max(baseline, total_gain) each poll.
 
 If total_gain < day_trigger for hysteresis_sec → switch to DAY
 ```
+
+The clamp and the running max exist because the point sample can be
+poisoned: the IR LED bouncing off a covered lens (the test every user
+runs) or a point-blank surface crashes AE during the cooldown, and a
+baseline of 459 against a detection gain of 45025 makes the day
+trigger unreachable -- the camera latches night forever. A baseline
+reading far below the darkness that caused night is self-
+contradictory, so it is clamped (with a WARN naming the likely
+cause), and the running max adopts the scene's real dark reading if
+it appears later.
+
+### Day Verification
+
+The clamp alone would trade the latch for an oscillator: the
+reflection state itself (gain 459) is optically identical to a real
+bright scene (377 in the same field case) -- no brightness metric
+separates them. What separates them is what happens after the
+switch: day turns the IR off, and a covered lens goes dark while a
+real day stays bright. Every ratio-triggered day is therefore
+verified on the last cooldown tick, with the IR already off: a
+night-dark reading (ae_luma < night_luma) means the "day" was the
+LED's own light, so ric reverts to night with a WARN and backs off
+further attempts (30 polls doubling to 300, reset by any verified
+day). A covered lens settles into stable night with a rare re-check
+instead of blinking, and an uncovered scene passes verification on
+the next attempt and holds.
 
 Example with 25% threshold:
 - Night mode, dark, IR on: gain=16143 > 4036 → stays night ✓
