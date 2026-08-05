@@ -236,8 +236,13 @@ audio sample rate), GOP periodicity (and exact configured length via
 malformed-request robustness, ONVIF backchannel (client-to-camera
 audio with device-side speaker-ring evidence), MJPEG over RTSP
 (`/jpeg`), WebRTC through a real WHIP client including talk-back,
-audio-only sources (auto-detected from the SDP), NVR recording
-through go2rtc and dockerized Frigate, recorded-clip verification,
+audio-only sources (auto-detected from the SDP), NVR interop
+through go2rtc and mediamtx restreams (both spawned locally from
+pinned single binaries with `--go2rtc local` / `--mediamtx local`,
+so the battery carries its own consumers; mediamtx's gortsplib
+client is strict about SDP/RTP-Info/RTCP and exercises different
+surface than go2rtc's), dockerized Frigate recording,
+recorded-clip verification,
 fault injection (abruptly killed clients), and device health over
 SSH: CPU, connection baseline, daemon-log error sweep, and
 framesource drop counters. A `--soak <minutes>` endurance mode
@@ -249,7 +254,7 @@ raptor-test rtsp://CAM:554/ch0 --sub rtsp://CAM:554/ch1 \
     --user thingino --pass thingino --ssh root@CAM --gop 60 \
     --rhd https://CAM:8443 --srt srt://CAM:9000 \
     --webrtc "https://CAM:8554/whip?stream=1" \
-    --go2rtc http://HOST:1984 --frigate \
+    --go2rtc local --mediamtx local --frigate \
     --record-check /path/to/recordings
 ```
 
