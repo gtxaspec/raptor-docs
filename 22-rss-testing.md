@@ -2,7 +2,7 @@
 
 Testing spans four layers: unit tests on x86 with AddressSanitizer,
 full-daemon ASAN integration with a mock HAL, on-device validation on
-real cameras, and performance benchmarking. 447 unit tests across the
+real cameras, and performance benchmarking. 453 unit tests across the
 raptor ecosystem pass under ASAN with zero errors.
 
 
