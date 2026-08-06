@@ -199,6 +199,16 @@ On-device validation runs on real cameras. Primary target is T31
 (XBurst 1, most deployed). Secondary target is T41 (XBurst 2, new SDK
 generation).
 
+**Where the tests live.** Anything that touches a camera lives in the
+`raptor-test` repo and is orchestrated by `run-battery`; `raptor/tests`
+holds only what needs source, sanitizers or namespaces (unit tests,
+the mock-HAL integration suite, the ric/rac/net-fallback/leak
+harnesses). The split is not cosmetic: three device suites once lived
+in `raptor/tests`, duplicated the battery's coverage, ran against an
+unpinned ffmpeg, and were invoked by nothing -- so they judged cameras
+against stale hardcoded expectations whenever someone remembered them.
+A device test that is not a battery pass will not be run.
+
 ### 3.1 Validation Matrix
 
 | Stage | Daemons | Validates |
@@ -236,7 +246,12 @@ audio sample rate), GOP periodicity (and exact configured length via
 malformed-request robustness, ONVIF backchannel (client-to-camera
 audio with device-side speaker-ring evidence), MJPEG over RTSP
 (`/jpeg`), WebRTC through a real WHIP client including talk-back,
-audio-only sources (auto-detected from the SDP), NVR interop
+audio-only sources (auto-detected from the SDP), a five-codec audio
+sweep (pcmu/pcma/l16/aac/opus, each asserted on the decoded codec and
+sample rate), an encoder RC-mode sweep driven by the platform's own
+capability report (the readback must equal what was asked -- a silent
+SDK fallback is the bug that leg exists for), continuous-recording
+segment alignment against the wall clock, NVR interop
 through go2rtc and mediamtx restreams (both spawned locally from
 pinned single binaries with `--go2rtc local` / `--mediamtx local`,
 so the battery carries its own consumers; mediamtx's gortsplib
