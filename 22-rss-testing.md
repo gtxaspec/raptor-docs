@@ -183,7 +183,13 @@ WHIP body), its STUN parser (raw UDP from anyone who can reach the ICE
 port), and Digest/Basic header parsing. Each target is time-boxed so
 the stage fits in `test-all`; `--seconds` and `--corpus` turn it into a
 real hunt. It skips cleanly without clang, and CI installs clang so
-that skip cannot happen there silently.
+that skip cannot happen there silently. Seeds in `fuzz/corpus/` let
+the fuzzer start inside each protocol -- a real WHIP offer, a STUN
+binding request, Digest and Basic headers -- instead of guessing its
+way to a valid input. The `Fuzz` workflow (manual dispatch, `seconds`
+input, default 600) is the version that hunts: it caches the corpus
+between runs so coverage compounds, and uploads any crash as an
+artifact.
 
 The harnesses had rotted while nothing ran them: `fuzz_stun` no longer
 compiled, because its shim hand-copies `struct rwd_client` and never

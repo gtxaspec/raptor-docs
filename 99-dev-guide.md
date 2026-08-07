@@ -436,6 +436,12 @@ make -C fuzz                     # build all fuzzers by hand
 ./fuzz/fuzz_http_auth corpus/auth/  # HTTP auth
 ```
 
+**Sanitizer and language flags are shared.** `sanitizer-flags.mk` is
+sourced by `build-asan.sh` and included by `tests/Makefile`, so the 24
+sources both compile see the same instrumentation. Edit flags there,
+not in either consumer, and keep values space- and quote-free -- the
+file has to parse as both `sh` and `make`.
+
 **Rebuilds are not optional.** `test-all` reuses `asan-out/` only when
 the recorded sanitizer matches, no source is newer than the binaries,
 and the previous build finished. Before those checks existed, `--tsan`
