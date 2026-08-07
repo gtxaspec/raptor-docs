@@ -175,7 +175,22 @@ refuses `socket(AF_INET6)` with `EAFNOSUPPORT` the way a kernel built
 without IPv6 does (every daemon must fall back to IPv4, log it, and
 keep serving -- including rsr's SRT rebind after a failed v6 bind).
 
-### 2.6 RAC Beep Suite
+### 2.6 Pre-Auth Parser Fuzzing
+
+`tests/test-fuzz.sh` runs libFuzzer over the three parsers that read
+untrusted input before any authentication: rwd's SDP offer parser (a
+WHIP body), its STUN parser (raw UDP from anyone who can reach the ICE
+port), and Digest/Basic header parsing. Each target is time-boxed so
+the stage fits in `test-all`; `--seconds` and `--corpus` turn it into a
+real hunt. It skips cleanly without clang, and CI installs clang so
+that skip cannot happen there silently.
+
+The harnesses had rotted while nothing ran them: `fuzz_stun` no longer
+compiled, because its shim hand-copies `struct rwd_client` and never
+learned about the ICE verified-address ring. The helper it needs is
+now extracted from `rwd_main.c` at build time rather than copied again.
+
+### 2.7 RAC Beep Suite
 
 `tests/test-rac.sh` exercises `rac beep` with no rad and no hardware:
 argument validation, then a real 1 kHz / 1 s beep published to the

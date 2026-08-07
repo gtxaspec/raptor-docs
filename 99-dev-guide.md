@@ -422,14 +422,27 @@ cd raptor-ipc/tests && make test      # IPC tests (29 tests)
 cd raptor-common/tests && make test   # common tests (86 tests)
 ```
 
-**Fuzz targets (requires clang):**
+**Fuzz targets (requires clang):** these cover the parsers that read
+untrusted network input *before* authentication, so `test-all` runs
+them time-boxed and CI pins clang for it. Give them longer and a
+corpus for an actual hunt -- 20 seconds is a smoke test, not a search.
 
 ```sh
-make -C fuzz                     # build all fuzzers
+./tests/test-fuzz.sh                          # as test-all runs it (20s each)
+./tests/test-fuzz.sh --seconds 600 --corpus ~/fuzz-corpus   # real hunt
+make -C fuzz                     # build all fuzzers by hand
 ./fuzz/fuzz_stun corpus/stun/    # STUN parser (calls production rwd_ice_process)
 ./fuzz/fuzz_sdp corpus/sdp/      # SDP parser
 ./fuzz/fuzz_http_auth corpus/auth/  # HTTP auth
 ```
+
+**Rebuilds are not optional.** `test-all` reuses `asan-out/` only when
+the recorded sanitizer matches, no source is newer than the binaries,
+and the previous build finished. Before those checks existed, `--tsan`
+on a warm tree ran ASan binaries under a TSan banner, and a build that
+died partway looked complete -- so a broken TSan build and a live data
+race both hid for weeks. If you are ever unsure what you are testing,
+`rm -rf asan-out/` costs one build.
 
 ### CI
 
