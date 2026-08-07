@@ -175,6 +175,22 @@ refuses `socket(AF_INET6)` with `EAFNOSUPPORT` the way a kernel built
 without IPv6 does (every daemon must fall back to IPv4, log it, and
 keep serving -- including rsr's SRT rebind after a failed v6 bind).
 
+### 2.5b Ring Modes: Embedded and Refmode
+
+Both publish paths are exercised, and which suite covers which is a
+choice rather than an accident of defaults. Integration and
+net-fallback run **refmode** -- the mock HAL injects encoder SHM and
+`rss_ring_open` resolves the data region through named POSIX shm
+(`/rss_enc_<name>`), falling back to `/dev/rmem` only on older SoCs,
+so the path devices actually run is reproducible on x86 with no
+hardware. The leak soak runs **embedded**, and says so in its config:
+its reconnect churn is what surfaced a producer writing past its own
+mapping there, and it is the only daemon-level coverage that path has.
+
+Unit tests cover the supersede case on both, since a ring re-created
+underneath a live producer is what breaks each of them -- the data
+region in embedded mode, the slot array in refmode.
+
 ### 2.6 Pre-Auth Parser Fuzzing
 
 `tests/test-fuzz.sh` runs libFuzzer over the three parsers that read
