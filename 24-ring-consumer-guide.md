@@ -172,6 +172,30 @@ consumers that process frames at their own pace.
 | `RSS_EOVERFLOW` | Consumer fell behind. `read_seq` is advanced to the oldest available slot. Call `rss_ring_request_idr()` to get a keyframe. |
 | `-ENOSPC` | Frame is larger than `dest_size`. |
 
+
+### Producer Restarts
+
+A producer restart creates a **new shm file at the same name**. The old
+mapping stays valid but frozen: `write_seq` never moves again, and
+`rss_ring_wait()` blocks on a futex nothing will ever wake. Polling
+alone cannot tell that apart from an idle encoder, so a consumer that
+only watches for new frames waits forever -- in the field this showed
+up as every new RTSP client completing signaling and then getting no
+frames until an unrelated timeout cleared it.
+
+Check `rss_ring_stale()` when a ring goes quiet, and close/reopen when
+it returns true. Do not rely on an idle-close path that is gated on
+having no active clients: one lingering client keeps it from ever
+running.
+
+The producer side has the mirror-image hazard. A handle bounds its
+writes by the geometry **it** mapped, not by `data_size` in the shared
+header -- another `rss_ring_create()` can enlarge that header while an
+older producer still holds a smaller mapping, and trusting it walks off
+the end. `rss_ring_publish*()` returns `-EPIPE` once the incarnation
+shows this handle has been superseded; treat that as "stop publishing,
+you are the old producer", not as a transient error.
+
 `read_seq` is caller-owned state. Initialize to 0 on first read.
 The ring advances it automatically.
 

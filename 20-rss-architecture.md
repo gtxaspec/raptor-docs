@@ -1157,6 +1157,13 @@ void         rss_ring_set_stream_info(rss_ring_t *ring,
  *
  * rss_ring_get_header(): read-only access to ring metadata (codec,
  *   resolution, fps, profile/level). Used by RSD for SDP generation.
+ *
+ * rss_ring_stale(): true when the shm file behind this handle is no
+ *   longer the file the name resolves to. A producer restart creates a
+ *   NEW shm file at the same name; the old mapping stays valid but
+ *   frozen, so a consumer polling write_seq or waiting on the futex
+ *   never learns the producer was reborn. Stale handles never produce
+ *   again -- close and reopen.
  */
 rss_ring_t *rss_ring_open(const char *name);
 void         rss_ring_close(rss_ring_t *ring);
@@ -1166,6 +1173,7 @@ int          rss_ring_read(rss_ring_t *ring, uint64_t *read_seq,
                            uint32_t *length, rss_ring_slot_t *meta);
 
 int          rss_ring_wait(rss_ring_t *ring, uint32_t timeout_ms);
+bool         rss_ring_stale(rss_ring_t *ring);
 
 const rss_ring_header_t *rss_ring_get_header(rss_ring_t *ring);
 
