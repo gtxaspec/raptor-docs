@@ -30,12 +30,20 @@ explicitly set.
 
 ### Save Semantics
 
-`rss_config_save()` (triggered by `raptorctl config-save`) re-reads
-the on-disk file and merges only entries modified at runtime (dirty
-flag). This prevents one daemon from clobbering another daemon's
-sections. Uses `flock()` on a `.lock` sidecar file for inter-daemon
-serialization. Writes are atomic (write to `.tmp`, rename over
-original).
+`rss_config_save()` (triggered by `raptorctl config-save`) edits the
+on-disk file in place, line by line: only keys modified at runtime
+(dirty flag) are touched. A modified key's line is regenerated in
+place, keeping its inline comment; new keys are inserted at the end
+of their section, new sections are appended at end of file. Comments,
+blank lines, and unknown content survive every save, so a
+hand-maintained `/etc/raptor.conf` keeps its documentation intact.
+
+A save with nothing dirty does not write at all: a `config save`
+broadcast costs one flash write per daemon that actually has changes,
+not one per daemon. Editing only dirty keys also prevents one daemon
+from clobbering another daemon's sections. Uses `flock()` on a
+`.lock` sidecar file for inter-daemon serialization. Writes are
+atomic (write to `.tmp`, fsync, rename over original).
 
 ---
 
