@@ -454,6 +454,17 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Crash safety**: Each `moof+mdat` pair is self-contained and written
   directly to the file descriptor. A crash between fragments leaves all
   prior fragments intact and playable.
+- **Timelapse**: A third writer samples keyframes from the video ring at
+  a configured interval (`[timelapse]`) and writes them as an all-intra
+  MP4 with timestamps at `playback_fps` — real time compressed by
+  `interval x playback_fps`, playable anywhere with no post-processing.
+  An IDR is requested when a sample comes due so the wait is one frame,
+  not a GOP. Files rotate daily (or per N frames) under
+  `<storage_path>/timelapse/` with their own quota, and inherit the SEI
+  timecodes and signature chain, so every frame of a compressed file
+  still proves its true capture time. Ring reconnects rotate the file
+  and reset the sampler's sequence guard (the recreated ring restarts
+  its sequence space).
 - **AVCC conversion**: H.264/H.265 Annex B NAL units are converted to
   AVCC (length-prefixed) format for MP4 boxing. The conversion validates
   NAL length against available AVCC buffer space to prevent integer

@@ -65,6 +65,7 @@ cd raptor-ipc/tests && make test
 | ctrl | test_ctrl.c | 43 | RVD control handlers against the mock HAL vtable: encoder get/set commands, table-driven enc-set/get/list, ISP commands, JSON error paths |
 | sign | test_sign.c | 3 | Recording signature chain: key generation/reload/pub export, span hash + Ed25519 chain verification, tamper and wrong-key rejection, empty-span no-op |
 | storage | test_storage.c | 3 | Storage availability: existing dir, auto-create on non-root filesystems, refusal to auto-create on the root filesystem |
+| timelapse | test_timelapse.c | 12 | Timelapse sampler: tick cadence with no catch-up burst after stalls, take() consume + claimed-seq dedup, ring-reset forgetting the guard after producer restart (found on hardware), config clamps, index-derived DTS exactness at rates that do not divide 90000, daily and frame-count rotation, playback-rate change forcing rotation |
 
 ```
 cd raptor/tests && make test

@@ -355,8 +355,19 @@ All take effect on the next poll cycle (default 1 second).
 | `stop` | Stop motion clip |
 | `sign-status` | Provenance signing state + device key fingerprint |
 | `export-pubkey` | Ed25519 public key (hex) for `rverify -k` |
+| `timelapse-status` | Timelapse state, current file, frame and byte counts |
+| `timelapse-enable` | Enable timelapse capture (persists via `config save`) |
+| `timelapse-disable` | Disable timelapse and close the current file |
+| `timelapse-set <key> <value>` | Set `interval` or `playback_fps` live (a rate change rotates the file) |
+| `timelapse-snap` | Capture one timelapse sample immediately |
 
-`status` also reports `sign` and `sei_timecode` states. Verify signed
+Timelapse files are all-intra MP4s sampled from the recording stream
+(`[timelapse]` config section): playback compresses real time by
+`interval x playback_fps`, and each file carries the same SEI
+timecodes and signature chain as any recording, so `rverify` works
+unchanged.
+
+`status` also reports `sign`, `sei_timecode`, and `timelapse` states. Verify signed
 recordings with `rverify -k <pubkey> file.mp4` (`-t` summarizes the
 embedded ST 0604 timecodes, `-T` dumps every frame's UTC).
 

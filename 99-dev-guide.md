@@ -62,7 +62,7 @@ rad/   -- Audio capture and encoding
 rhd/   -- HTTP server (snapshots, MJPEG, audio streaming)
 rod/   -- OSD rendering (libschrift text, detection boxes)
 ric/   -- IR-cut and day/night control
-rmr/   -- Motion-triggered recording (fMP4, H.264/H.265/MJPEG)
+rmr/   -- Recording (fMP4, H.264/H.265/MJPEG; continuous, motion, timelapse)
 rmd/   -- Motion detection state machine
 rwd/   -- WebRTC server (WHIP signaling, DTLS-SRTP)
 rwc/   -- USB webcam gadget (UVC+UAC)

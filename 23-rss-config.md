@@ -526,6 +526,40 @@ box. Players skip the boxes. Verify with
 
 ---
 
+### `[timelapse]`
+
+Timelapse capture for RMR: keyframes sampled from the recording
+stream at an interval and written as an ordinary all-intra MP4 whose
+timestamps run at `playback_fps`, so real time is compressed by
+`interval x playback_fps` (10s x 30 = 300x) and the file plays
+everywhere with no post-processing. Files land under
+`<storage_path>/timelapse/` with the same date-directory layout,
+SEI timecodes (each frame carries its true capture UTC), and
+Ed25519 signature chain as every other recording -- `rverify`
+works unchanged. RMR runs when either `[recording]` or this section
+is enabled; with `[recording] enabled = false` only the timelapse
+writes.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Enable timelapse capture |
+| `interval` | int | `10` | Seconds between frames (clamped to >= 2) |
+| `playback_fps` | int | `30` | Timestamp rate written to the file (1-120). Changing it live rotates the file: a track's timeline cannot bend mid-file |
+| `file_frames` | int | `0` | `0` = rotate daily at local midnight; `N` = rotate every N frames (clamped to >= 60), letting a file span midnight |
+| `max_mb` | int | `2048` | Quota for the timelapse directory, enforced separately from `max_storage_mb`; 0 = unlimited |
+
+Runtime control (persisted by `config save` after any change):
+`raptorctl rmr timelapse-status`, `timelapse-enable`,
+`timelapse-disable` (closes the file), `timelapse-set
+interval|playback_fps <n>`, and `timelapse-snap` to capture one
+sample immediately. A tick requests an IDR from the encoder so the
+sample lands within a frame; below the GOP length the sampler
+degenerates to taking every natural keyframe. After a stall the
+sampler takes one frame and reschedules -- a timelapse never
+back-fills a burst for time that produced nothing.
+
+---
+
 ### `[motion]`
 
 Motion detection for RMD (state machine) and RVD (IVS pipeline).
