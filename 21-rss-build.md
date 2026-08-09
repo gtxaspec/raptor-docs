@@ -67,7 +67,9 @@ raptor/                  # main repo: all daemons and tools
 │   ├── rmr_mux.c / rmr_mux.h
 │   ├── rmr_nal.c / rmr_nal.h
 │   ├── rmr_prebuf.c / rmr_prebuf.h
-│   └── rmr_storage.c / rmr_storage.h
+│   ├── rmr_sign.c / rmr_sign.h
+│   ├── rmr_storage.c / rmr_storage.h
+│   └── rmr_timelapse.c / rmr_timelapse.h
 ├── rmd/                 # motion detection daemon
 │   ├── Makefile
 │   ├── rmd.h
