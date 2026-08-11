@@ -457,6 +457,23 @@ IR-cut filter and day/night control for RIC.
 | `night_luma` | int | `20` | AE luma below this triggers night (0-255) |
 | `night_gain` | int | `80000` | Total gain above this triggers night |
 | `day_gain_pct` | int | `25` | Night-to-day: gain below this % of night baseline |
+| `probe_gain_pct` | int | `90` | Night: gain dip below this % of the night baseline lifts the IR LEDs for an ambient luma probe (0 = off) |
+| `probe_holdoff_sec` | int | `60` | Minimum seconds between failed probes |
+
+AE luma comes from `GetAeLuma` on T23/T31, from the 256-bin AE
+histogram on Gen3, and from the 5-bin AE histogram (bin-midpoint
+weighted mean) on T10/T20/T21/T30, whose SDKs have no `GetAeLuma`.
+All sources land on the same 0-255 scale, so `night_luma` means the
+same thing on every platform.
+
+The probe covers sensors whose gain range compresses under IR
+(measured on T20: gain ceiling 8192, night baseline 1299 with IR
+lit, lights-on 1024 -- the 25% day ratio can never fire). A dip
+below `probe_gain_pct` of the baseline lifts the IR LEDs, AE
+settles, and the now-trustworthy luma decides day. A truly dark
+night sits at its baseline and never probes; a probe that finds
+darkness restores the LEDs and holds off. Boards with no enabled IR
+bank skip the probe entirely and ride luma directly back to day.
 
 **Gain trigger (legacy):**
 
