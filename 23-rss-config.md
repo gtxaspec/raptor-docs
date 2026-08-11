@@ -507,6 +507,31 @@ EV:  0 (bright) ─────────────────────�
 | `photo_rgain_rec` | int | `0` | R-gain AWB baseline (0=auto-calibrate from 16 bright samples) |
 | `photo_bgain_rec` | int | `0` | B-gain AWB baseline (0=auto-calibrate from 16 bright samples) |
 
+The EV thresholds are absolute, per-sensor values; the defaults were
+tuned on a gc2053 (T31). EV scales differ wildly between SoC
+generations -- a T20 reads ~1.3M lit and ~50M dark where a T31 reads
+~2-20K for the same scenes -- so every `photo_ev_*` value must be
+re-derived from `raptorctl ric status` readings on the actual camera.
+
+Two invariants both matter when scaling: `photo_ev_day` must sit
+ABOVE the lit-scene EV (or AWB calibration never samples and the WB
+detection paths stay armed on the fixed-EV fallback alone), and it
+must sit BELOW the EV of the IR-lit night scene (or the day detector
+reads the camera's own IR as "bright"). On short-throw scenes with
+strong IR -- a T20 in a small room measures IR-lit night at 370K
+against 1.3M lit-day -- those two requirements contradict and the
+photo trigger cannot be tuned to work; use the default luma trigger
+there. The stock algorithm this trigger descends from avoided the
+problem by PWM-dimming the IR emitter into a fixed EV band, which is
+not implemented here.
+
+A camera that boots in darkness enters night on EV evidence alone
+(about three seconds at the default poll — the stock algorithm's
+behavior) and runs without WB detection until the first day period
+calibrates; calibration only samples in day mode, and only from a
+scene whose EV stands still, so the baseline can never learn
+IR-shifted or mid-transition values.
+
 ---
 
 ### `[recording]`
