@@ -459,6 +459,7 @@ IR-cut filter and day/night control for RIC.
 | `day_gain_pct` | int | `25` | Night-to-day: gain below this % of night baseline |
 | `probe_gain_pct` | int | `90` | Night: gain dip below this % of the night baseline lifts the IR LEDs for an ambient luma probe (0 = off) |
 | `probe_holdoff_sec` | int | `60` | Minimum seconds between failed probes |
+| `probe_recheck_sec` | int | `600` | Probe anyway after this long in night with no dip (0 = off) |
 
 AE luma comes from `GetAeLuma` on T23/T31, from the 256-bin AE
 histogram on Gen3, and from the 5-bin AE histogram (bin-midpoint
@@ -474,6 +475,16 @@ settles, and the now-trustworthy luma decides day. A truly dark
 night sits at its baseline and never probes; a probe that finds
 darkness restores the LEDs and holds off. Boards with no enabled IR
 bank skip the probe entirely and ride luma directly back to day.
+
+Strong close-range IR can wash the scene so thoroughly that room
+light barely moves any AE metric (a Wyze V3 a hand-span from the
+wall reads lit at 91% of its dark EV -- inside any dip threshold's
+noise band). The interval recheck covers that: after
+`probe_recheck_sec` in night with no dip, the probe runs anyway, so
+dawn latency is bounded by the interval on wash-dominated scenes at
+the cost of a brief IR blink per interval. The probe dip itself
+watches EV where the platform reports it, because AE can answer new
+light with exposure time alone while gain sits at its floor.
 
 **Gain trigger (legacy):**
 
