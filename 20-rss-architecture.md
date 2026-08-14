@@ -302,11 +302,25 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   client's sendq copy before the first VCL NAL — refmode-safe, and the
   timecode survives client-side copy recording (ffmpeg/NVRs). Skipped
   for JPEG streams and rings without a UTC mapping.
-- **Backchannel**: SDP advertises a `sendonly` PCMU/8000 backchannel
-  track (`a=control:backchannel`). Clients SETUP the backchannel track,
-  then send RTP audio via TCP interleaved framing. RSD decodes PCMU to
-  PCM16, upsamples 8→16kHz, and writes to the speaker SHM ring. RAD's
-  AO thread plays it through the hardware speaker.
+- **Backchannel**: when the client's DESCRIBE carries the ONVIF
+  Profile T `Require` tag (and `[rtsp] backchannel = true`), the SDP
+  advertises one `sendonly` audio section (`a=control:backchannel`)
+  offering PCMU (0), PCMA (8), opus (112, RFC 7587), AAC (113,
+  RFC 3640 AAC-hbr at the ring rate, mono) and L16/16000 (114). RTSP
+  has no SDP answer, so the client picks a codec by sending it and
+  `rsd_backchannel.c` dispatches on the RTP payload type — mid-stream
+  switches included. Everything decodes to PCM16 mono 16 kHz in the
+  speaker SHM ring (G.711 sample-doubled, opus via libopus at the ring
+  rate, AAC via the helix decoder in raw-block mode pinned to the
+  advertised `config`, with fragmented-AU reassembly); payload types
+  outside the offer are counted and dropped, never published raw. RAD's
+  AO thread plays the ring through the hardware speaker. Works over TCP
+  interleaved framing and over UDP, where the track owns its own socket
+  pair and both fds are receive paths. RSD also sends RTCP receiver
+  reports (RR + SDES, RFC 3550 §6.4.2) about the client's audio on the
+  SR cadence — loss and extended-sequence fields are exact; jitter is
+  computed at the 8 kHz baseline clock, and LSR/DLSR echo the client's
+  own sender reports.
 - **Client listing**: `raptorctl rsd clients` shows connected clients
   with IP, port, stream index, transport, and video/audio/backchannel state.
 - **Authentication**: Digest auth (RFC 2617) via compy, credentials from
@@ -414,6 +428,13 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Caching**: Stream parameters are cached at ring (re)open; the
   cached video rate is not consumed for SDP (live555 builds the SDP
   and advertises no framerate).
+- **Backchannel divergence**: deliberately PCMU-only where RSD offers
+  five codecs -- live555's `MultiFramedRTPSource` discards any packet
+  whose payload type differs from its single configured format behind
+  a non-virtual check, and vendored-library surgery is the wrong trade
+  for the reference server. PCMU is ONVIF Profile T's baseline, so
+  every conforming client still works; receiver reports for the
+  received stream come from live555's own `RTCPInstance`.
 - **Why both ship**: The battery runs each as its own pass; interop
   bugs that only one server tickles (strict gortsplib clients, VLC
   quirks) get caught by the difference.

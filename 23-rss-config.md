@@ -303,7 +303,7 @@ and RSD-555 (live555-based). Both backends read from this section.
 | `session_timeout` | int | `60` | Session timeout in seconds (min 10) |
 | `tcp_sndbuf` | int | `65536` | TCP send buffer bytes (lower=less latency) |
 | `rtcp_sr` | bool | `true` | Send RTCP Sender Reports every 5s, first ~1s after PLAY (RSD only). NVRs (ffmpeg/Frigate/go2rtc) use the SR NTP<->RTP mapping for A/V sync; disabling it lets audio/video drift apart in long recordings |
-| `backchannel` | bool | `false` | Two-way audio (ONVIF Profile T, PCMU/8000); received client audio is published to the `speaker` ring |
+| `backchannel` | bool | `false` | Two-way audio (ONVIF Profile T). Offers PCMU, PCMA, opus, AAC and L16 on one sendonly section; the client picks by sending, TCP interleaved or UDP. Decoded client audio lands in the `speaker` ring; rsd answers with RTCP receiver reports |
 | `jpeg` | bool | `false` | Serve the JPEG rings over RTSP at `/jpeg` and `/jpeg_sub` (RFC 2435 MJPEG, RSD only). RVD encodes JPEG on demand, so frames flow only while a consumer holds the ring |
 | `out_buffer_size` | int | `262144` | live555 OutPacketBuffer max size (RSD-555 only) |
 | `sei_timecode` | bool | `true` (sample conf ships `false`) | Send a MISB ST 0604 UTC timecode SEI with every video frame (RSD only; ~36 bytes/frame, spliced before the first VCL NAL; survives client-side `-c copy` recording) |

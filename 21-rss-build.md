@@ -431,7 +431,7 @@ cd asan-out/
 | compy | RSD | RTSP protocol, RTP transport, SDP, auth | Yes for RSD |
 | mbedTLS | RSD (optional) | TLS for RTSPS | Only if TLS=1 |
 | libfaac | RAD (optional) | AAC-LC encoding | Only if AAC=1 |
-| libhelix-aac | RAD (optional) | AAC decoding (backchannel) | Only if AAC=1 |
+| libhelix-aac | RAD, RSD (optional) | AAC decoding (playback + backchannel) | Only if AAC=1 |
 | libopus | RAD (optional) | Opus encoding | Only if OPUS=1 |
 | libhelix-mp3 | RAD (optional) | MP3 decoding (backchannel) | Only if MP3=1 |
 | ingenic-uclibc | all daemons | uclibc shim for vendor SDK compat | Yes (uclibc toolchain) |
