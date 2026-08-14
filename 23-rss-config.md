@@ -716,18 +716,30 @@ device.
 
 ### `[push]`
 
-RTMP/RTMPS stream push to external servers for RSP. Supports
-YouTube, Twitch, and other RTMP targets.
+Stream push to an external receiver for RSP. RTMP/RTMPS pushes to
+streaming services (YouTube, Twitch, custom endpoints); a
+`udp://host:port` URL instead sends raw RTP datagrams with no
+session or handshake, for relays and custom receivers on the local
+network. UDP push is video only and never queues: a send the socket
+refuses is dropped, so the receiver always gets the freshest frame.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `enabled` | bool | `false` | Enable stream push |
-| `url` | string | (empty, required) | RTMP/RTMPS target URL |
+| `url` | string | (empty, required) | `rtmp://`, `rtmps://`, or `udp://host:port` (brackets for IPv6 literals) |
 | `stream` | int | `0` | Stream index: 0=main, 1=sub |
-| `audio` | bool | `true` | Include audio (transcoded to AAC if needed) |
+| `audio` | bool | `true` | Include audio (RTMP only; transcoded to AAC if needed) |
 | `autostart` | bool | `true` | Start pushing on daemon launch |
 | `reconnect_ms` | int | `5000` | Reconnect delay on failure (1000-60000) |
-| `tcp_sndbuf` | int | `262144` | TCP send buffer bytes |
+| `tcp_sndbuf` | int | `262144` | TCP send buffer bytes (RTMP only) |
+
+A UDP receiver needs the codec out of band (raw RTP carries no
+signaling). ffplay: a four-line SDP (`m=video PORT RTP/AVP 96`,
+`a=rtpmap:96 H264/90000`, or `H265`) with
+`-protocol_whitelist file,udp,rtp`. gstreamer: `udpsrc port=PORT
+caps="application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000"
+! rtph264depay ! ...` (`H265`/`rtph265depay` for HEVC). set-url may
+change host and port at runtime but not the scheme.
 
 ---
 

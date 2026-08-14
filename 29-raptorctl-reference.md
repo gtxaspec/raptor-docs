@@ -435,8 +435,9 @@ raptorctl rod disable
 raptorctl rod set-time-format "%H:%M:%S"
 raptorctl rod enable
 
-# Switch RTMP target live
+# Switch push target live (same scheme only; rtmp<->udp needs a restart)
 raptorctl rsp set-url rtmp://live.twitch.tv/app/new_stream_key
+raptorctl rsp set-url udp://192.168.1.50:5600
 
 # Mute audio, disable echo cancellation
 raptorctl rad mute

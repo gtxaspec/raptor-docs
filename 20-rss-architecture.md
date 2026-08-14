@@ -616,6 +616,18 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   requires a copy (start code → length prefix rewrite).
 - **Reconnection**: Auto-reconnects on TCP/TLS/RTMP failure with
   configurable backoff (`reconnect_ms`, default 5000, clamped 1-60s).
+- **UDP mode**: `url = udp://host:port` switches the whole send path
+  to serverless RTP over UDP (video only). Packetization is compy's
+  NAL transport, the same stack RSD's UDP transport uses, so both
+  codecs fragment under MTU with SPS/PPS in-band per IDR. The socket
+  is connected and non-blocking and nothing is ever queued: a send
+  the socket refuses is dropped and counted, because a stale frame
+  is worth less than a missing one. First send is held for a
+  keyframe (an IDR is requested at open and on ring reconnect) so a
+  fresh receiver never starts inside a GOP. Receivers are told the
+  codec out of band: an SDP file for ffplay, caps for gstreamer, or
+  nothing at all for a relay that just forwards datagrams. IPv6
+  resolved first, IPv4 fallback; brackets for v6 literals.
 - **Config**: `[push]` section -- `url`, `stream`, `audio`, `autostart`,
   `reconnect_ms`. Control via `raptorctl rsp start/stop/status`.
 - **Why separate**: Network push is inherently unreliable (upstream
