@@ -555,7 +555,7 @@ Media recording to SD card for RMR.
 | `mode` | string | `continuous` | Mode: `continuous`, `motion`, `both` |
 | `stream` | int | `0` | Stream index (0=main, 1=sub, 2-5 for multi-sensor) |
 | `audio` | bool | `true` | Include audio |
-| `segment_minutes` | int | `5` | Segment rotation interval (minutes). Segments open on wall-clock boundaries (the :00 the OSD shows): the first after start is short, an IDR is requested just before each boundary so the split lands within a frame, and a 5s floor guards backward clock steps |
+| `segment_minutes` | int | `5` | Segment rotation interval (minutes). Segments open on wall-clock boundaries (the :00 the OSD shows): the first after start is short, an IDR is requested at the first frame past each boundary so the split lands within a frame (a pre-boundary request restarts the GOP and lands the key early, offsetting every split by a constant GOP phase), and a 5s floor guards backward clock steps |
 | `segment_seconds` | int | `0` | Nonzero overrides `segment_minutes` with a seconds-granularity interval (debugging and test harnesses) |
 | `storage_path` | string | `/mnt/mmcblk0p1/raptor` | Recording path. Auto-created when it resolves to mounted media (SD/NFS/SMB — any filesystem other than `/`); never auto-created on the root filesystem, so an absent SD card cannot spill recordings onto flash. While no destination is writable RMR stands by detached from the rings (logging `waiting for storage` once a minute) so an absent card costs the encoder nothing, then reattaches and starts recording as soon as the media appears (hot-plug) |
 | `max_storage_mb` | int | `0` | Max storage (MB); 0=unlimited |

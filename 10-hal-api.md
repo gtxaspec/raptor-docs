@@ -1405,7 +1405,15 @@ typedef struct rss_hal_ops {
     /*
      * gpio_set -- set a GPIO pin output value.
      *
-     * Uses /sys/class/gpio or direct register access.
+     * Uses /sys/class/gpio. Exports the pin if the system has not,
+     * and ensures the direction is "out" before the value write: a
+     * fresh sysfs export leaves the line an input, where a value
+     * write fails with EPERM. The direction is read first and only
+     * written on a mismatch, because writing "out" drives the line
+     * low on most drivers and a pin somebody configured deliberately
+     * must stay as they configured it. A pin exposing no direction
+     * attribute (fixed-function lines) is left to the value write to
+     * succeed or fail on its own.
      * pin: GPIO number.
      * value: 0 or 1.
      */
@@ -1413,6 +1421,10 @@ typedef struct rss_hal_ops {
 
     /*
      * gpio_get -- read a GPIO pin input value.
+     *
+     * Never forces the direction to "in": turning an output around
+     * to read it would release whatever it holds (an IR-cut filter,
+     * for one), and a freshly exported pin is already an input.
      *
      * pin: GPIO number.
      * *value: output; 0 or 1.

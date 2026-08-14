@@ -239,11 +239,22 @@ ring buffers. Exactly one instance of each runs per camera.
   per frame. SDK audio timestamps (`IMPAudioFrame.timeStamp`) are ignored
   on all platforms — they use a different clock domain from the encoder on
   some SoCs (T31), causing A-V sync overflow when cross-referenced.
-  The synthetic clock is slewed toward `CLOCK_MONOTONIC` each chunk
-  (`RAD_SYNTH_*`): beyond 150ms it hard-resyncs and warns (samples lost
-  in the SDK, or a stall), outside a 20ms jitter band it nudges 1ms.
-  Without the slew, ADC crystal error and invisible SDK-side sample loss
-  accumulate as unbounded A/V drift in every consumer.
+  The synthetic clock (`rad_clock.c`, unit-pinned) is slewed toward
+  `CLOCK_MONOTONIC` each chunk with a proportional law: the clock
+  error is filtered through an EWMA (1/16) and a correction of
+  filtered-error/16, clamped to 1 ms per chunk, is applied every
+  chunk. The old deadband-and-nudge law let drift wander to the band
+  edge and walked it back in steps -- a slow sawtooth that every
+  consumer and every RTCP sender report faithfully reproduced.
+  Hard resyncs keep asymmetric thresholds (150 ms behind, 1 s ahead
+  to tolerate post-stall drain bursts) and are gated to live-paced
+  reads so buffered chunks served after a stall cannot misfire them.
+  Without the slew, ADC crystal error and invisible SDK-side sample
+  loss accumulate as unbounded A/V drift in every consumer. Resync
+  bursts are summarised per episode (`rad_resync.c`): the first is
+  logged in full, the rest counted, with a cumulative report at
+  quiet-close and once a minute while an episode runs, so a
+  sustained loss cannot evict the syslog ring.
 - **Outputs**: Audio SHM ring (input/encoding path).
 - **Inputs**: Speaker SHM ring (output/playback path).
 - **Thread model**: Main thread (AI read loop + control socket), AO
@@ -341,22 +352,45 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   thread validates `buf_gen` before each send to detect encoder buffer
   recycling. Without refmode (embedded mode), the sendq holds malloc'd
   copies (copy-on-push). Each client's send thread independently drains
-  its queue through blocking TLS/TCP writes.
-- **Send architecture (audio)**: Audio bypasses the sendq entirely —
-  the audio reader thread writes directly to each client's socket under
-  `write_lock`. Audio frames are ~1KB and write instantly. This prevents
-  audio from being collateral damage when video IDR bursts fill the
-  shared sendq.
+  its queue through blocking TLS/TCP writes. The queue is sized to
+  absorb routine client-side stalls (32 mixed entries, roughly 445 ms
+  at 25 fps with AAC): when video still overflows it, queued video is
+  discarded and held to the next keyframe while independently
+  decodable audio is retained, so video recovery does not punch an
+  avoidable hole in the sound.
+- **Send architecture (audio)**: Audio rides the sendq with priority
+  draining — queued audio entries are drained between video NAL sends
+  (every ~10 packets during large frames) and by the send thread, so
+  IDR bursts cannot starve audio delivery. Each audio entry carries
+  its ring capture instant through the queue; the send path hands the
+  (wire timestamp, capture instant) pair to compy as the media-clock
+  reference for sender reports. The audio wire timestamp itself
+  advances by exact frame samples and is steered toward capture
+  reality with the same filtered proportional law as the rad clock
+  (EWMA/16, correction clamped to 1 ms per frame) — the deadband it
+  replaced was the g711 sender-report sawtooth.
 - **RTCP Sender Reports**: Configurable via `rtcp_sr` in `[rtsp]`
   (default on). SR fires every 5 seconds per track from the send
   thread, with the first one ~1s after PLAY so NVR probe windows see
-  it. The NTP timestamp uses CLOCK_MONOTONIC (via `pthread_once`
-  for thread-safe init). The RTP timestamp is extrapolated to the SR
-  send instant using `last_send_time_us`. NVRs (ffmpeg/Frigate/go2rtc)
-  use the SR NTP<->RTP pair for cross-stream A/V sync; without periodic
-  SRs, audio (sample-count timeline) drifts from video (capture-clock
-  timeline) in long recordings. Cost is negligible (~120 bytes per
-  track per 5s; T23 rsd CPU unchanged at 3-8% streaming).
+  it. The NTP and RTP fields describe one sampling instant (RFC 3550
+  §6.4.1): the report instant is sampled once, and the RTP timestamp
+  is projected to it from a media-clock reference. Audio supplies
+  that reference on every send — the frame's wire timestamp paired
+  with its ring capture instant — so audio SRs describe the capture
+  clock's true relationship to the wall clock; the AAC
+  frame-availability weave (1024-sample frames assembled from 20 ms
+  chunks) that a send-time anchor faithfully reported as ±16 ms of
+  mapping wobble never enters the mapping. Video stays on the
+  send-time anchor (measured ~4 ms of spread, harmless). Measured
+  steady-state SR mapping spread on a T31: all codecs under 4 ms
+  per 5 s interval, where the pre-reference stack showed 16-46 ms.
+  NVRs (ffmpeg/Frigate/go2rtc) use the SR NTP<->RTP pair for
+  cross-stream A/V sync; without periodic SRs, audio drifts from
+  video in long recordings. Cost is negligible (~120 bytes per track
+  per 5s; T23 rsd CPU unchanged at 3-8% streaming). On TEARDOWN,
+  RTCP BYE is sent per track ahead of the 200 response (where it
+  cannot race the connection close), so receivers can drop the SSRC
+  immediately instead of waiting out a timeout.
 - **SDP**: Includes `a=type:broadcast`, `a=range:npt=now-`, and
   `o=- 0 0 IN IP4 0.0.0.0` to match live555 format for VLC
   compatibility. PLAY response uses `Range: npt=0.000-`.
@@ -364,6 +398,25 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   RTCP) is complex and has its own failure modes (slow clients, network
   errors). Isolating it means a misbehaving RTSP client cannot affect
   frame production or recording.
+
+#### RSD-555 -- live555 RTSP Server (alternate)
+
+- **Role**: The RTSP twin built on live555 instead of compy. Same rings,
+  same streams, its own port (default 8555). It exists as the
+  independent reference implementation: when the two servers disagree
+  about the wire, one of them is wrong in a way a spec argument alone
+  will not settle -- and its presentation-time SR anchoring measures
+  microsecond-clean, which makes it the null instrument for timeline
+  probes.
+- **Join and drops**: Clients are held at a keyframe on join, and held
+  again at the next keyframe after a send-queue drop, so a session
+  never resumes mid-GOP.
+- **Caching**: Stream parameters are cached at ring (re)open; the
+  cached video rate is not consumed for SDP (live555 builds the SDP
+  and advertises no framerate).
+- **Why both ship**: The battery runs each as its own pass; interop
+  bugs that only one server tickles (strict gortsplib clients, VLC
+  quirks) get caught by the difference.
 
 #### RHD -- HTTP Daemon
 
@@ -991,10 +1044,13 @@ Pipeline commands:
 #### ringdump
 
 - **Role**: SHM ring buffer inspector for debugging.
-- **Usage**: `ringdump <ring> [-f] [-d] [-n N] [-s]`
+- **Usage**: `ringdump <ring> [-f] [-d] [-l] [-s] [-i] [-n N]`
 - Reads before waiting, so a finite stream (e.g. `rac beep`) is drained
   to its final frame. `-s` starts past the newest published frame and
-  waits for the next one.
+  waits for the next one. `-l` measures pipeline latency, `-i` raises
+  the ring's IDR-request flag and exits. A frame larger than the read
+  buffer is reported as skipped rather than silently absent -- the
+  silent version once disguised missing keyframes as a parser bug.
 
 ---
 

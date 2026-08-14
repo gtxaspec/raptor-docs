@@ -457,9 +457,17 @@ GitHub Actions (`tests.yml`, manual dispatch):
 - **asan job**: full suite + 5-min soak under AddressSanitizer
 - **tsan job**: full suite + 5-min soak under ThreadSanitizer
 
-Both jobs build from scratch, run 204 unit tests + 65 integration
-tests + lifecycle soak (concurrent clients, ring reconnect, clean
+Both jobs build from scratch, run 259 unit tests + 112 integration
+checks + lifecycle soak (concurrent clients, ring reconnect, clean
 shutdown). Logs are uploaded as artifacts on failure.
+
+A separate **Format** workflow runs on every pull request and push
+to main: `git-clang-format` (pinned to clang-format-19) judges only
+the lines a change touches against the merge base, so pre-existing
+drift in untouched files blocks nobody while every new line must be
+clean. The same gate runs in raptor-hal, raptor-ipc and
+raptor-common. Its first real catch was a help-string line in the
+very change that documented the gate's URL schemes.
 
 ### On-Device Testing via NFS
 

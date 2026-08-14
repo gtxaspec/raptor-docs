@@ -44,17 +44,17 @@ cd raptor-common/tests && make test
 cd raptor-ipc/tests && make test
 ```
 
-### 1.3 raptor (204 tests, 17 suites)
+### 1.3 raptor (259 tests, 21 suites)
 
 | Suite | File | Tests | Coverage |
 |-------|------|------:|----------|
-| ric_json | test_ric_json.c | 11 | thingino.json GPIO discovery: int and dual-string pins, raptor.conf precedence, range limits, missing/empty/garbage/no-gpio/over-cap files, and the >2 KB document with pins at the tail (regression for the truncated-read bug) |
+| ric_json | test_ric_json.c | 14 | thingino.json GPIO discovery: int and dual-string pins, raptor.conf precedence, range limits, missing/empty/garbage/no-gpio/over-cap files, and the >2 KB document with pins at the tail (regression for the truncated-read bug) |
 | nal | test_nal.c | 12 | Annex B → AVCC conversion (H.264, H.265, 3-byte start codes), empty/overflow, single NAL, SPS/PPS extraction |
 | prebuf | test_prebuf.c | 9 | Pre-buffer push/count, slot eviction, keyframe find by age, frame-at lookup, iterate with data verification, data region wrap integrity |
 | mux | test_mux.c | 17 | fMP4 box construction (moov/moof/mdat/mfra), H.264/H.265/PCMU/AAC/Opus codec paths, multi-fragment, large timestamps (64-bit tfdt), CTS offset, empty/double flush, A/V duration verification |
 | sdp | test_sdp.c | 17 | SDP offer parsing, answer generation, ICE candidate extraction, codec negotiation |
-| codec | test_codec.c | 28 | Codec detection, parameter set parsing, frame type identification |
-| ring | test_ring.c | 14 | Ring buffer create/open, publish/read, overflow, IDR request, demand signaling |
+| codec | test_codec.c | 32 | Codec detection, parameter set parsing, frame type identification, AAC accumulator timestamps on the exact sample grid (8/16/48 kHz LC and 48 kHz HE) |
+| ring | test_ring.c | 21 | Ring buffer create/open, publish/read, overflow, IDR request, demand signaling |
 | rsp_url | test_rsp.c | 8 | RTMP/RTMPS URL parsing, port detection, edge cases (missing scheme/app/key, complex keys) |
 | rsp_amf0 | test_rsp.c | 8 | AMF0 number/string/null/object encoding, property names, connect command structure |
 | rsp_chunk | test_rsp.c | 5 | Big-endian helpers, chunk header layout, extended timestamps, fmt=3 continuation, protocol constants |
@@ -62,9 +62,12 @@ cd raptor-ipc/tests && make test
 | rsp_audio | test_rsp.c | 6 | G.711 µ-law decode (minimum step, full range, symmetry), A-law decode (silence, full range), L16 byte-swap |
 | rsp_annexb | test_rsp.c | 4 | Start code detection (3-byte, 4-byte, none, multiple) |
 | rsp_state | test_rsp.c | 6 | RTMP state machine: set_chunk_size (incl. MSB mask), _result advancing connect/createStream, onStatus → publishing, _error → error state |
-| ctrl | test_ctrl.c | 43 | RVD control handlers against the mock HAL vtable: encoder get/set commands, table-driven enc-set/get/list, ISP commands, JSON error paths |
+| ctrl | test_ctrl.c | 46 | RVD control handlers against the mock HAL vtable: encoder get/set commands, table-driven enc-set/get/list, ISP commands, JSON error paths, set-fps ring-header republish (per channel, refused rates publish nothing, fractional denominators reset) |
 | sign | test_sign.c | 3 | Recording signature chain: key generation/reload/pub export, span hash + Ed25519 chain verification, tamper and wrong-key rejection, empty-span no-op |
-| storage | test_storage.c | 3 | Storage availability: existing dir, auto-create on non-root filesystems, refusal to auto-create on the root filesystem |
+| storage | test_storage.c | 9 | Storage availability: existing dir, auto-create on non-root filesystems, refusal to auto-create on the root filesystem |
+| sendq | test_sendq.c | 9 | Send-queue push/drop/drain ordering; audio entries carry their ring capture instant for SR anchoring |
+| rad_clock | test_rad_clock.c | 5 | The synthetic audio clock's control law as field lessons: crystal drift tracked without sawtooth, arrival jitter not amplified, stall resync gated to live-paced reads, drain bursts tolerated, impossibly-ahead resync |
+| resync | test_resync.c | 6 | Resync burst summariser: lone resync stays one line, bursts summarise once, long episodes report per minute cumulatively, the tail after a periodic report is accounted, alternating signs show in the absolute, idle ticks are silent |
 | timelapse | test_timelapse.c | 12 | Timelapse sampler: tick cadence with no catch-up burst after stalls, take() consume + claimed-seq dedup, ring-reset forgetting the guard after producer restart (found on hardware), config clamps, index-derived DTS exactness at rates that do not divide 90000, daily and frame-count rotation, playback-rate change forcing rotation |
 
 ```
@@ -192,6 +195,16 @@ Unit tests cover the supersede case on both, since a ring re-created
 underneath a live producer is what breaks each of them -- the data
 region in embedded mode, the slot array in refmode.
 
+### 2.5c Recovery Invariants
+
+A dedicated integration leg drives faults mid-stream -- clients
+killed abruptly, the producer restarted underneath live sessions --
+and asserts RTP correctness through the recovery rather than mere
+survival: sequence numbers stay contiguous per SSRC, timestamps stay
+monotonic, and the stream that resumes is decodable from its first
+keyframe. Survival-only checks passed for years while the wire
+misbehaved during exactly these windows.
+
 ### 2.6 Pre-Auth Parser Fuzzing
 
 `tests/test-fuzz.sh` runs libFuzzer over the three parsers that read
@@ -238,7 +251,8 @@ On-device validation runs on real cameras. Primary target is T31
 generation).
 
 **Where the tests live.** Anything that touches a camera lives in the
-`raptor-test` repo and is orchestrated by `run-battery`; `raptor/tests`
+`raptor-test` repo and is orchestrated by `run-battery` (leg-level
+selection via `--only <regex>` when iterating on one section); `raptor/tests`
 holds only what needs source, sanitizers or namespaces (unit tests,
 the mock-HAL integration suite, the ric/rac/net-fallback/leak
 harnesses). The split is not cosmetic: three device suites once lived
@@ -284,7 +298,15 @@ audio sample rate), GOP periodicity (and exact configured length via
 malformed-request robustness, ONVIF backchannel (client-to-camera
 audio with device-side speaker-ring evidence), MJPEG over RTSP
 (`/jpeg`), WebRTC through a real WHIP client including talk-back,
-audio-only sources (auto-detected from the SDP), a five-codec audio
+audio-only sources (auto-detected from the SDP), RFC 3550
+sender-report timeline stability (per-track SR mapping spread over a
+40 s window, one resync-class excursion excised before judging, and
+an audio-versus-video media-clock rate bound of 500 ppm from each
+track's first-to-last SR pair -- the drift number that stays
+measurable for codecs whose packet spacing rides an availability
+grid), RTCP BYE on teardown (credited when seen; the scan includes
+the pre-response window where the server actually sends it, and
+walks compound packets), a five-codec audio
 sweep (pcmu/pcma/l16/aac/opus, each asserted on the decoded codec and
 sample rate), an encoder RC-mode sweep driven by the platform's own
 capability report (the readback must equal what was asked -- a silent
