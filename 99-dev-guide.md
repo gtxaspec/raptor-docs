@@ -88,6 +88,19 @@ alternative RTSP backends reading the same rings -- RSD uses compy
 Raptor uses Linux kernel style with tabs. A `.clang-format` file
 enforces this -- **always run `clang-format -i` before committing**.
 
+**Conformity hooks** automate the mechanical rules locally. The
+engine lives once in `raptor/tools/conformity/` (see its README);
+each repo declares its checks in a tracked one-line `.conformity`
+manifest. Activate once per clone -- `git config core.hooksPath
+tools/conformity/hooks` inside raptor, or
+`../raptor/tools/conformity/hooks` from any sibling -- and commits
+get diff-scoped format, the hand-written-JSON gate and lab-address
+refusal at staging time, trailer rejection at message time, and the
+exact CI range checks at push time, so a push that passes locally
+cannot fail those CI gates. Hooks are the committer's safety net;
+CI remains the enforcement for everyone. Commit messages carry no
+trailers: no Signed-off-by, no co-authors, no review tags.
+
 ### Rules
 
 - **Tabs for indentation, 8-wide.** No spaces for indentation.
