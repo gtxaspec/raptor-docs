@@ -320,7 +320,10 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   reports (RR + SDES, RFC 3550 §6.4.2) about the client's audio on the
   SR cadence — loss and extended-sequence fields are exact; jitter is
   computed at the 8 kHz baseline clock, and LSR/DLSR echo the client's
-  own sender reports.
+  own sender reports. At TEARDOWN the reporting side leaves properly:
+  a final RR+SDES+BYE compound goes out ahead of the 200, the same
+  discipline the sending tracks follow (owed only if an RR ever made
+  this side a visible participant).
 - **Client listing**: `raptorctl rsd clients` shows connected clients
   with IP, port, stream index, transport, and video/audio/backchannel state.
 - **Authentication**: Digest auth (RFC 2617) via compy, credentials from
