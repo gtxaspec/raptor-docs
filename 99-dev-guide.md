@@ -179,6 +179,19 @@ enforces this -- **always run `clang-format -i` before committing**.
   in `rvd_ctrl.c` for the pattern.
 - **Don't mask errors.** If a HAL call fails, log it and propagate.
   Don't silently continue with corrupt state.
+- **JSON is built by serializers and read by parsers — never by
+  hand.** Requests go through `rss_ctrl_cmd`/`rss_ctrl_cmd_int`/
+  `rss_ctrl_cmd_str`, responses through `rss_ctrl_resp_ok`/
+  `rss_ctrl_resp_error`/`rss_ctrl_resp_json`, and answers are checked
+  with `rss_ctrl_resp_is_ok` or `cJSON_Parse` — never
+  `strstr`/`snprintf`. A `%s` into a JSON literal is one edit away
+  from injection, and a substring check ties correctness to the
+  peer's formatting (a spaced `"status": "ok"` once parked a whole
+  feature). `test-all.sh` stage 0 enforces this by grep; the two
+  documented exemptions are `raptorctl_help.c` (display text showing
+  `-j` example syntax) and raptor-ipc's transport error frame in
+  `rss_ctrl.c` (a dependency-free layer emitting a constant shape
+  with one integer).
 
 ### Protocol Compliance
 
