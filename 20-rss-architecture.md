@@ -797,7 +797,12 @@ These daemons control hardware peripherals and do not process frame data.
 - **HAL dependency**: None. RIC queries ISP exposure via RVD's control
   socket (`get-exposure` command) and sets ISP running mode via
   `set-running-mode` command. GPIO control is direct sysfs. This avoids
-  the libimp per-process ISP device ownership issue.
+  the libimp per-process ISP device ownership issue. The exposure query
+  doubles as a liveness probe and runs in every operating mode
+  (forced ones included); when rvd answers again after a gap, RIC
+  re-asserts the current ISP mode — the mode lives in rvd, so a
+  restart would otherwise leave a night camera streaming day-mode
+  colors under lit IR until the next transition.
 - **GPIO support**: Single GPIO (pin toggles high/low) or dual GPIO
   (motor driver with 100ms pulse). IR LED enable/disable.
 - **Algorithm**: Total gain threshold with configurable hysteresis
