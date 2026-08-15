@@ -208,7 +208,14 @@ streaming for the kernel road (VIC active).
 
 | Command | Description |
 |---------|-------------|
-| `clients` | List connected RTSP clients (IP, stream, transport, RTCP stats) |
+| `clients` | List connected RTSP clients (IP, stream, transport, RTCP stats; a session with a backchannel carries its active talk-back codec -- `null` until the first accepted packet -- and its dropped-unknown-payload counter) |
+| `set-backchannel-codecs <list>` | Restrict the talk-back offer, e.g. `pcmu,opus` (`""` = everything the build carries). Applies to the next SETUP -- no restart; unknown names are refused, excluding `pcmu` (the ONVIF baseline) warns. `status` names the effective offer |
+
+```bash
+raptorctl rsd set-backchannel-codecs pcmu,l16
+raptorctl rsd set-backchannel-codecs ""        # back to the full offer
+raptorctl rsd clients                          # ...,"backchannel":{"codec":"opus","unknown_dropped":0}
+```
 
 ---
 

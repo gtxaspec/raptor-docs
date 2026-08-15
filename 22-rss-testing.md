@@ -298,8 +298,9 @@ audio sample rate), GOP periodicity (and exact configured length via
 `--gop`), RFC 2326/4566/3550/3640 conformance including PAUSE and
 malformed-request robustness, ONVIF backchannel (client-to-camera
 audio with device-side speaker-ring evidence, a burst per offered
-codec -- PCMA, L16, opus, real ffmpeg AAC -- and the RFC 3550
-receiver report watched for on the RTCP channel), MJPEG over RTSP
+codec -- PCMA, L16, opus, real ffmpeg AAC -- the RFC 3550 receiver
+report watched for on the RTCP channel, and the leave BYE ahead of
+the TEARDOWN 200), MJPEG over RTSP
 (`/jpeg`), WebRTC through a real WHIP client including talk-back,
 audio-only sources (auto-detected from the SDP), RFC 3550
 sender-report timeline stability (per-track SR mapping spread over a
