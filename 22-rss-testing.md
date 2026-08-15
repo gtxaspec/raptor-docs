@@ -44,7 +44,7 @@ cd raptor-common/tests && make test
 cd raptor-ipc/tests && make test
 ```
 
-### 1.3 raptor (271 tests, 22 suites)
+### 1.3 raptor (274 tests, 22 suites)
 
 | Suite | File | Tests | Coverage |
 |-------|------|------:|----------|
@@ -68,7 +68,7 @@ cd raptor-ipc/tests && make test
 | sendq | test_sendq.c | 9 | Send-queue push/drop/drain ordering; audio entries carry their ring capture instant for SR anchoring |
 | rad_clock | test_rad_clock.c | 5 | The synthetic audio clock's control law as field lessons: crystal drift tracked without sawtooth, arrival jitter not amplified, stall resync gated to live-paced reads, drain bursts tolerated, impossibly-ahead resync |
 | resync | test_resync.c | 6 | Resync burst summariser: lone resync stays one line, bursts summarise once, long episodes report per minute cumulatively, the tail after a periodic report is accounted, alternating signs show in the absolute, idle ticks are silent |
-| backchannel | test_backchannel.c | 12 | Two-way audio decode: G.711 golden vectors and sign symmetry for both laws, PCMU/PCMA sample-doubling into the speaker ring, L16 network-order swap with odd-tail drop, unknown payload types counted and dropped (never published raw), and the RFC 3640 AAC-hbr parser (single/multi AU, lone-fragment detection, interleaving and trailing-byte rejection) |
+| backchannel | test_backchannel.c | 15 | Two-way audio decode: G.711 golden vectors and sign symmetry for both laws, PCMU/PCMA sample-doubling into the speaker ring, L16 network-order swap with odd-tail drop, unknown payload types counted and dropped (never published raw), the RFC 3640 AAC-hbr parser (single/multi AU, lone-fragment detection, interleaving and trailing-byte rejection), and codec selection (config list parsing with unknown-token capture, clamp-to-build with degrade-to-all, offer/name string building, disabled codec dropped like a never-offered PT) |
 | timelapse | test_timelapse.c | 12 | Timelapse sampler: tick cadence with no catch-up burst after stalls, take() consume + claimed-seq dedup, ring-reset forgetting the guard after producer restart (found on hardware), config clamps, index-derived DTS exactness at rates that do not divide 90000, daily and frame-count rotation, playback-rate change forcing rotation |
 
 ```

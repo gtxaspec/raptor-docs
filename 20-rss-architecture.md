@@ -323,7 +323,12 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   own sender reports. At TEARDOWN the reporting side leaves properly:
   a final RR+SDES+BYE compound goes out ahead of the 200, the same
   discipline the sending tracks follow (owed only if an RR ever made
-  this side a visible participant).
+  this side a visible participant). `[rtsp] backchannel_codecs`
+  restricts the offer (clamped to the build, read per session so
+  `raptorctl rsd set-backchannel-codecs` needs no restart); which
+  codec a client picked shows in `raptorctl rsd clients` alongside
+  its dropped-payload counter, and `status` names the effective
+  offer.
 - **Client listing**: `raptorctl rsd clients` shows connected clients
   with IP, port, stream index, transport, and video/audio/backchannel state.
 - **Authentication**: Digest auth (RFC 2617) via compy, credentials from
