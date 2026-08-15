@@ -99,6 +99,12 @@ cd compy && cmake -B build && cmake --build build && ctest --test-dir build
 
 Full-daemon integration tests run all raptor daemons on the x86 host
 under AddressSanitizer, using a mock HAL instead of real hardware.
+Backend-selection legs pin the `[system] video_backend` contract: a
+default build rejects `v4l2` with its explicit diagnostic, an
+explicit `imp` initializes an identical topology to an omitted key,
+and a requested H.264 IDR reaches the ring as `H264_IDR` with
+`key=1` — with the inverse mismatches (IDR marked non-key, slice
+marked key) asserted as failures.
 
 ### 2.1 Mock HAL
 

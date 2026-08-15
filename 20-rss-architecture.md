@@ -25,6 +25,19 @@ ring buffers. Exactly one instance of each runs per camera.
 - **HAL dependency**: RVD is the HAL owner. It calls `rss_hal_create()`,
   `init()`, and builds the full video pipeline:
   `sensor -> FS -> OSD -> Enc`.
+- **Optional V4L2 backend** (`[system] video_backend = v4l2`, builds
+  with `V4L2_OPENIMP=1`): a zero-copy V4L2 NV12 capture → DMA-BUF →
+  OpenIMP H.264 path that publishes into the same main ring, leaving
+  every downstream consumer unchanged. Opt-in and deliberately
+  narrow: stream0 H.264 only, an explicit ctrl allow-list instead of
+  the IMP surface, keyframes derived from the bitstream. The IMP HAL
+  graph is never initialized in this mode. First tranche is
+  scaffolding around branch dispatch; the follow-up moves it behind
+  dedicated HAL operations advertised through `get_caps`. The bridge
+  (raptor-hal `hal_v4l2.c`) uses weak OpenIMP symbols so a flag-on
+  build still degrades to NOTSUP against a stock libimp image, and
+  its struct mirrors are pinned to a named OpenIMP commit as the ABI
+  contract.
 - **Sensor auto-detect**: Reads sensor name, i2c_addr, resolution, and
   max FPS from `/proc/jz/sensor/` when not set in config. Default config
   ships with `[sensor]` section commented out — works on any device.

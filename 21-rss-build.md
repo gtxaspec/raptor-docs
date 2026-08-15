@@ -271,6 +271,21 @@ make distclean
 | `t41` | T41 | IMPVI | XBurst2 |
 | `a1` | A1 | IMPVI | XBurst2, 1MB L2, no ISP -- uses RFS instead of RVD |
 
+### 2.3b Optional V4L2/OpenIMP backend flag
+
+`V4L2_OPENIMP=1` (set for both raptor-hal and raptor) compiles the
+optional V4L2 → OpenIMP H.264 backend: `hal_v4l2.c` in raptor-hal
+and the `video_backend = v4l2` path in RVD. Default builds carry
+none of it, and a default binary rejects a v4l2 config with an
+explicit diagnostic. The bridge links OpenIMP symbols weak, so even
+a flag-on build degrades to NOTSUP on an image whose libimp does
+not export the `OpenIMP_AVC_*` interface. The OpenIMP structures
+mirrored in `hal_v4l2.c` are pinned to a named OpenIMP commit —
+treat that pin as an ABI contract and update both together.
+Binaries carry `DT_RUNPATH` (new dtags), so `LD_LIBRARY_PATH` can
+stage an OpenIMP build over `/usr/lib` at runtime; thingino's
+uClibc-ng is built with `LDSO_RUNPATH=y` and honors it.
+
 ### 2.4 build-standalone.sh
 
 Self-contained build that downloads the toolchain and all dependencies.

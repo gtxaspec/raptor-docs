@@ -77,6 +77,12 @@ RVD owns the sensor, framesource, ISP, and encoder. Channel `<ch>` is
 
 ### Encoder Controls
 
+With the V4L2 backend active (`[system] video_backend = v4l2`), RVD
+answers only `status`, `config-show`, `request-idr` and the read-only
+getters (`get-bitrate`/`get-fps`/`get-gop`/`get-qp-bounds`/
+`get-rc-mode`); every other verb returns "not supported by the V4L2
+backend" rather than touching uninitialized SDK state.
+
 | Command | Description |
 |---------|-------------|
 | `set-rc-mode <ch> <mode> [bps]` | Rate control: cbr, vbr, fixqp, capped |

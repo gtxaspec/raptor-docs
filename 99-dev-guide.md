@@ -470,7 +470,7 @@ GitHub Actions (`tests.yml`, manual dispatch):
 - **asan job**: full suite + 5-min soak under AddressSanitizer
 - **tsan job**: full suite + 5-min soak under ThreadSanitizer
 
-Both jobs build from scratch, run 287 unit tests + 134 integration
+Both jobs build from scratch, run 287 unit tests + 142 integration
 checks + lifecycle soak (concurrent clients, ring reconnect, clean
 shutdown). Logs are uploaded as artifacts on failure.
 

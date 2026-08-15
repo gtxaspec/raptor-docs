@@ -82,6 +82,26 @@ Every daemon handles these via `rss_ctrl_handle_common()`:
 
 ## 4. Configuration Sections
 
+### `[system]`
+
+Video producer selection for RVD.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `video_backend` | string | `imp` | `imp` (Ingenic SDK pipeline, the default — an omitted key behaves identically) or `v4l2` (opt-in V4L2 NV12 capture → DMA-BUF → OpenIMP H.264, currently a T41 main-stream path) |
+| `video_device` | string | `/dev/video0` | Capture device for the V4L2 backend |
+
+The V4L2 backend requires a build with `V4L2_OPENIMP=1` (raptor and
+raptor-hal); a default build rejects `video_backend = v4l2` at startup
+with an explicit diagnostic rather than falling back silently. Its
+surface is deliberately small in this first tranche: stream0 H.264
+only — sub-stream, JPEG, OSD and IVS are disabled with a warning —
+and the control socket answers status/read-only queries plus
+`request-idr`, returning an explicit "not supported by the V4L2
+backend" for everything else so no command can reach uninitialized
+SDK state. Keyframe truth is derived from the H.264 bitstream itself
+and verified against the ring's key flag.
+
 ### `[sensor]`
 
 Sensor hardware configuration for RVD. All values auto-detected from
