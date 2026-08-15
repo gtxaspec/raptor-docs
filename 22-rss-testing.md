@@ -44,7 +44,7 @@ cd raptor-common/tests && make test
 cd raptor-ipc/tests && make test
 ```
 
-### 1.3 raptor (280 tests, 23 suites)
+### 1.3 raptor (287 tests, 23 suites)
 
 | Suite | File | Tests | Coverage |
 |-------|------|------:|----------|
@@ -62,7 +62,7 @@ cd raptor-ipc/tests && make test
 | rsp_audio | test_rsp.c | 6 | G.711 µ-law decode (minimum step, full range, symmetry), A-law decode (silence, full range), L16 byte-swap |
 | rsp_annexb | test_rsp.c | 4 | Start code detection (3-byte, 4-byte, none, multiple) |
 | rsp_state | test_rsp.c | 6 | RTMP state machine: set_chunk_size (incl. MSB mask), _result advancing connect/createStream, onStatus → publishing, _error → error state |
-| ctrl | test_ctrl.c | 46 | RVD control handlers against the mock HAL vtable: encoder get/set commands, table-driven enc-set/get/list, ISP commands, JSON error paths, set-fps ring-header republish (per channel, refused rates publish nothing, fractional denominators reset) |
+| ctrl | test_ctrl.c | 53 | RVD control handlers against the mock HAL vtable: encoder get/set commands, table-driven enc-set/get/list, ISP commands, JSON error paths, set-fps ring-header republish (per channel, refused rates publish nothing, fractional denominators reset), set-sensor-fps (min rule vs configured stream rates, GOP-seconds rescale, base restore, reject-aborts-everything, transient — config stays clean, user set-fps supersedes) |
 | sign | test_sign.c | 3 | Recording signature chain: key generation/reload/pub export, span hash + Ed25519 chain verification, tamper and wrong-key rejection, empty-span no-op |
 | storage | test_storage.c | 9 | Storage availability: existing dir, auto-create on non-root filesystems, refusal to auto-create on the root filesystem |
 | sendq | test_sendq.c | 9 | Send-queue push/drop/drain ordering; audio entries carry their ring capture instant for SR anchoring |
@@ -153,7 +153,9 @@ observable:
 
 - **AE**: a stub `rvd.sock` speaking the real length-prefixed ctrl
   protocol serves a scriptable scene and records `set-running-mode`
-  calls. It can die and come back to drive outage scenarios.
+  and `set-sensor-fps` calls (with injectable error answers for the
+  night_fps park path). It can die and come back to drive outage
+  scenarios.
 - **GPIO**: tmpfs over `/sys` with pre-created `gpioN` files;
   `gpio_export()` takes its already-exported path, so every actuation
   is a plain write observed via inotify -- sequences and pulse widths.

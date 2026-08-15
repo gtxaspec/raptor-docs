@@ -802,7 +802,12 @@ These daemons control hardware peripherals and do not process frame data.
   (forced ones included); when rvd answers again after a gap, RIC
   re-asserts the current ISP mode — the mode lives in rvd, so a
   restart would otherwise leave a night camera streaming day-mode
-  colors under lit IR until the next transition.
+  colors under lit IR until the next transition. The optional
+  `night_fps` rides the same paths: entering night drops the sensor
+  rate through rvd's transient `set-sensor-fps` (frame period bounds
+  integration time, so AE trades gain for photons; rvd moves encoder
+  rate control and GOP with it and persists nothing), day restores
+  the boot rate, and the recovery re-assert re-applies it.
 - **GPIO support**: Single GPIO (pin toggles high/low) or dual GPIO
   (motor driver with 100ms pulse). IR LED enable/disable.
 - **Algorithm**: Total gain threshold with configurable hysteresis

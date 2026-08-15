@@ -83,6 +83,8 @@ RVD owns the sensor, framesource, ISP, and encoder. Channel `<ch>` is
 | `set-bitrate <ch> <bps>` | Target bitrate in bits/sec |
 | `set-gop <ch> <length>` | GOP length in frames |
 | `set-fps <ch> <fps>` | Encoder frame rate |
+| `set-sensor-fps <fps>` | Transient sensor-rate override: sensor timing, encoder rate control and GOP move together, nothing persists; `0` restores the boot rate. Errors when the backend cannot report a base |
+| `get-sensor-fps` | Live sensor rate plus the boot baseline |
 | `set-qp-bounds <ch> <min> <max>` | QP range |
 | `set-qp-bounds-per-frame <ch> <iMin> <iMax> <pMin> <pMax>` | Per-frame-type QP |
 | `set-max-pic-size <ch> <iK> <pK>` | Max I/P frame size in kbits |
@@ -322,6 +324,7 @@ All take effect on the next poll cycle (default 1 second).
 | `day_threshold` | >= 0 | Gain-trigger: gain below this = day (default 25000) |
 | `hysteresis_sec` | 1-300 | Consecutive seconds before mode switch (default 5) |
 | `poll_interval_ms` | 50-10000 | Sample interval in ms (default 1000) |
+| `night_fps` | 0, 1-120 | Night sensor rate, 0 = off (default). Takes effect immediately when night is active; switching it off mid-night restores the base rate first |
 
 ---
 
