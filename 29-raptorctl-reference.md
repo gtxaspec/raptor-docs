@@ -314,20 +314,37 @@ raptorctl rsd clients                          # ...,"backchannel":{"codec":"opu
 | `ircut <day\|night>` | Drive the IR-cut filter alone; the next auto transition reasserts |
 | `ir850 <on\|off>` | Drive the 850nm LED bank alone (ignores the enable flag) |
 | `ir940 <on\|off>` | Drive the 940nm LED bank alone (ignores the enable flag) |
-| `set-threshold <key> <val>` | Tune day/night threshold (see below) |
-| `get-thresholds` | Show all threshold values and trigger mode |
+| `set-threshold <key> <val>` | Tune day/night behavior live (see below) |
+| `set-trigger <luma\|gain\|adc\|photo>` | Switch the trigger source live: the state machine re-arms (counters, baselines, probes), the current mode holds, and the new trigger judges from the next poll. Switching to `adc` fails outright if the ADC is unavailable — no silent fallback at runtime |
+| `get-thresholds` | Show every tunable value and the trigger mode |
 
 ### Threshold Keys
 
-All take effect on the next poll cycle (default 1 second).
+Every key takes effect immediately and lands in the running config, so a
+`config save` afterward persists the tune. Together with `set-trigger`
+this makes the whole day/night policy runtime-tunable; only the wiring
+(`gpio_*`, `adc_channel`) and `enabled` remain boot-time.
 
 | Key | Range | Description |
 |-----|-------|-------------|
 | `night_luma` | 0-255 | AE luma below this triggers night (default 20) |
 | `night_gain` | >= 0 | Gain above this triggers night regardless of luma (default 80000) |
 | `day_gain_pct` | 1-100 | Gain below this % of baseline triggers day (default 25) |
+| `probe_gain_pct` | 0-99 | Night: gain dip below this % of baseline lifts the LEDs for an ambient probe, 0 = off (default 90) |
+| `probe_holdoff_sec` | 1-86400 | Minimum spacing between failed probes (default 60) |
+| `probe_recheck_sec` | 0-86400 | Probe anyway after this long in night with no dip, 0 = off (default 600). Shortening it re-arms a running countdown |
 | `night_threshold` | >= 0 | Gain-trigger: gain above this = night (default 40000) |
 | `day_threshold` | >= 0 | Gain-trigger: gain below this = day (default 25000) |
+| `adc_night` | 0-65535 | ADC below this = night (default 200); must stay below `adc_day` |
+| `adc_day` | 0-65535 | ADC above this = day (default 600); must stay above `adc_night` |
+| `photo_ev_night` | >= 0 | EV above this = dark (default 50000) |
+| `photo_ev_deep` | >= 0 | EV above this = very dark (default 150000) |
+| `photo_ev_day` | >= 0 | EV below this = bright (default 5000) |
+| `photo_rgain_rec` | 0-65535 | AWB R-gain baseline, 0 = auto-calibrate |
+| `photo_bgain_rec` | 0-65535 | AWB B-gain baseline, 0 = auto-calibrate |
+| `ir850` | 0/1 | 850nm bank policy. Applies NOW when night is active: disabling drops the LED immediately (the window-reflection case), enabling lights it |
+| `ir940` | 0/1 | 940nm bank policy, same immediate mid-night apply |
+| `pulse_ms` | 1-1000 | Dual-GPIO ircut coil pulse width; the next actuation uses it |
 | `hysteresis_sec` | 1-300 | Consecutive seconds before mode switch (default 5) |
 | `poll_interval_ms` | 50-10000 | Sample interval in ms (default 1000) |
 | `night_fps` | 0, 1-120 | Night sensor rate, 0 = off (default). Takes effect immediately when night is active; switching it off mid-night restores the base rate first |

@@ -456,6 +456,14 @@ element. Elements can also be added/removed at runtime via raptorctl.
 
 IR-cut filter and day/night control for RIC.
 
+Everything in this section except the wiring is live: thresholds, the
+trigger choice, the bank policies, timings and `night_fps` all change at
+runtime through `raptorctl ric set-threshold` / `set-trigger`, apply
+immediately with defined mid-regime semantics, and persist with
+`config save`. Only `gpio_*`, `adc_channel` and `enabled` are read once
+at startup — re-pinning a live ircut coil is a hardware hazard, not a
+tuning knob.
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `enabled` | bool | `true` | Enable IR-cut control |
