@@ -368,6 +368,21 @@ Reconnection pattern (from RSD):
    frame buffer if `max_frame_size` grew.
 5. Resume reading.
 
+Two things change WITHOUT a reconnect, because rvd reuses the ring
+across an encoder restart (a live `set-resolution` closes nothing):
+
+- **Stream info is live.** The codec/geometry/rate cluster is rewritten
+  in place under a seqlock. A consumer that polls it (rate pacing, SDP
+  invalidation) must read through `rss_ring_get_stream_info()` — a
+  direct header read can catch the new width beside the old height.
+  RSD drops clients whose negotiated SDP the change falsified.
+- **The refmode region can be replaced.** The read paths handle it
+  internally (a region generation in the header triggers a remap), so
+  a consumer sees at most one `RSS_EOVERFLOW` while the swap lands.
+  Size the frame buffer for growth: a read that returns `-ENOSPC`
+  reports the needed size — reallocate and continue, the stride can
+  rise mid-life.
+
 ---
 
 ## 7. Reference Mode

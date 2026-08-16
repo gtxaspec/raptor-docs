@@ -233,6 +233,26 @@ automatic behavior, while a manual command is explicit intent, and
 lighting a disabled bank from the shell is exactly what bench
 debugging needs.
 
+The flags themselves are live POLICY, distinct from the momentary
+drives: `set-threshold ir850 0` disables the bank and, when night is
+active, drops its LED immediately -- the camera-facing-a-window case,
+where night vision is wanted but the pane bounces the LEDs back. The
+policy survives every later transition and re-assert, and a
+`config save` persists it.
+
+`set-trigger <luma|gain|adc|photo>` switches the judge without
+bouncing the regime: the state machinery re-arms (counters,
+baselines, settle window, probes -- everything that described the
+old trigger's view), baselines resample inside the CURRENT regime,
+and the mode, IR-cut position and ISP tuning hold. A probe may have
+the banks lifted when the switch lands, so night re-asserts each
+bank to its policy state. Switching to `adc` fails outright when the
+ADC is unavailable: startup may fall back to luma, but a runtime
+switch is explicit operator intent and gets the failure. Every knob
+in the section except the wiring (`gpio_*`, `adc_channel`) and
+`enabled` is adjustable this way -- see the raptorctl reference for
+the full key table.
+
 Tunable keys: `night_luma` (0-255), `night_gain` (>=0),
 `day_gain_pct` (1-100), `night_threshold` (>=0), `day_threshold`
 (>=0), `hysteresis_sec` (1-300), `poll_interval_ms` (50-10000),

@@ -1146,7 +1146,12 @@ typedef struct __attribute__((aligned(64))) {
     /* Data region allocator (producer only) */
     _Atomic uint32_t  data_head;        /* next write offset in data region (relaxed) */
 
-    /* Stream metadata (set once at init via rss_ring_set_stream_info) */
+    /* Stream metadata (rss_ring_set_stream_info). NOT set-once: rvd
+     * rewrites the cluster in place across an encoder restart (the ring
+     * is reused), under a seqlock whose generation lives in former
+     * padding. Live re-readers take rss_ring_get_stream_info() for a
+     * torn-proof snapshot; one-shot reads at open are ordered by the
+     * magic release/acquire contract and need nothing. */
     uint32_t          stream_id;        /* 0=main, 1=sub, 2=jpeg, 0x10=audio */
     uint32_t          codec;            /* rss_codec_t value */
     uint32_t          width, height;
@@ -1426,6 +1431,16 @@ int rss_ring_publish_ref(rss_ring_t *ring, uint32_t data_offset,
                          uint16_t nal_type, uint8_t is_key,
                          uint8_t buf_idx);
 ```
+
+`enable_refmode()` may be called again on a live ring: an encoder
+restart on a REUSED ring (a live `set-resolution`) replaces the backing
+region, and rvd re-declares it on every reuse. Each call bumps a region
+generation in the header; the consumer read paths check it before
+deriving any data pointer and remap transparently (new SHM object by
+name, or /dev/rmem at the current offset), so frames never resolve
+through a mapping of a region nobody writes anymore. Old producers
+never move the generation and their consumers never remap — exactly
+the historical behavior.
 
 **Known limitation: rmem refmode + JPEG bufshare**
 
