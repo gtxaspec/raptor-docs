@@ -139,10 +139,24 @@ it falls back to `/etc/thingino.json`:
 }
 ```
 
-Parsing rules:
-- `ircut`: string `"57 58"` → dual GPIO (motor driver), `"57"` → single, integer `57` → single
-- `ir850`: 850nm IR LED GPIO (mapped to `gpio_irled`)
-- `ir940`: 940nm IR LED GPIO (mapped to `gpio_irled2`)
+Parsing rules — the fleet's standard notation, nothing else:
+- `ircut`: integer `57` or string `"57"` → single pin; string `"57 58"`
+  → dual-coil pair, where **pin order defines polarity** (first pin
+  pulses for day, second for night); `{"pin": 57, "active_low": true}`
+  → single inverted pin. `-1` / `""` = explicitly disabled, silent.
+- `ir850` / `ir940`: bare integer or the same `{pin, active_low}`
+  object (mapped to `gpio_irled` / `gpio_irled2`).
+- The `{pin, active_low}` object is the standard's only polarity
+  escape hatch, needed only where a *single* pin is inverted — a pair
+  expresses inversion by swapping its order. Extra keys the webui
+  keeps in the same object (`active_on_boot`) are ignored.
+- `"ircut": 999` marks the tmi8152 motor-driver character device
+  (tapo c200/c210 class). RIC does not drive it yet and warns it as
+  unsupported instead of misreading it as a pin.
+- The retired o/O drive-level suffix notation (`"57o 58o"`) and any
+  other decorated string are **rejected whole with a warning**, never
+  half-read: `strtol` stopping at a suffix used to drive a dual-coil
+  filter as a held single pin.
 
 If discovery finds a 940nm pin and no 850nm pin, and the config carries
 no explicit `ir940` key, the 940 bank is enabled automatically -- the
@@ -163,7 +177,8 @@ Behavior (`ric/ric_json.c`, unit-tested in `tests/test_ric_json.c`):
 
 ### GPIO Control
 
-Single GPIO mode: pin HIGH = day (filter closed), LOW = night (filter open).
+Single GPIO mode: pin HIGH = day (filter closed), LOW = night (filter
+open); inverted when active-low.
 
 Dual GPIO mode (motor driver): pulse pin1/pin2 HIGH for `pulse_ms`
 (default 10ms, matching the timing the thingino `ircut` shell script
@@ -171,7 +186,11 @@ has always driven the fleet with), then both LOW. Both 10ms and 100ms
 measured 20/20 reliable on a dual-GPIO Wyze Cam3; the knob exists for
 mechanisms that disagree. Clamped 1-1000ms.
 
-IR LED: HIGH = on, LOW = off. Controlled via sysfs (`/sys/class/gpio`).
+IR LED: HIGH = on, LOW = off — inverted for an active-low bank, which
+is also parked at its off level right at export so the line's raw-low
+reset default never lights it before the first transition. Controlled
+via sysfs (`/sys/class/gpio`); inversion is done in userspace, the
+sysfs `active_low` attribute is deliberately not used.
 
 ---
 
@@ -193,6 +212,13 @@ gpio_ircut = -1               # -1 = auto from /etc/thingino.json
 gpio_ircut2 = -1              # second pin for dual motor mode
 gpio_irled = -1               # 850nm IR LED pin (-1 = auto)
 gpio_irled2 = -1              # 940nm IR LED pin (-1 = auto)
+gpio_ircut_active_low = false # single-pin ircut is driven inverted
+gpio_irled_active_low = false # 850 bank lights on 0
+gpio_irled2_active_low = false# 940 bank lights on 0
+                              # The _active_low flags pair with pins
+                              # set manually here; a pin discovered
+                              # from thingino.json carries its own
+                              # polarity and overrides them.
 ir850 = true                  # enable 850nm LED (visible glow, stronger)
 ir940 = false                 # enable 940nm LED (invisible, weaker);
                               # auto-enabled after discovery when 940 is

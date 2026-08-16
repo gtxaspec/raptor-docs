@@ -475,6 +475,9 @@ tuning knob.
 | `gpio_ircut2` | int | `-1` | Second IR-cut GPIO |
 | `gpio_irled` | int | `-1` | 850nm IR LED GPIO (-1=auto from /etc/thingino.json) |
 | `gpio_irled2` | int | `-1` | 940nm IR LED GPIO (-1=auto from /etc/thingino.json) |
+| `gpio_ircut_active_low` | bool | `false` | Single-pin ircut is driven inverted (a dual-pin pair expresses polarity by pin order instead: first = day, second = night) |
+| `gpio_irled_active_low` | bool | `false` | 850 bank lights on 0. The `_active_low` flags pair with pins configured manually here; a pin discovered from thingino.json (including its `{pin, active_low}` object form) carries its own polarity and overrides them |
+| `gpio_irled2_active_low` | bool | `false` | 940 bank lights on 0 |
 | `ir850` | bool | `true` | Enable 850nm IR LED (visible glow, stronger illumination) |
 | `ir940` | bool | `false` | Enable 940nm IR LED (invisible, weaker illumination). Auto-enabled after pin discovery when 940 is the board's only bank and no `ir940` key is set; an explicit `false` wins |
 | `pulse_ms` | int | `10` | Dual-GPIO ircut coil pulse width in ms (1-1000). 10 matches the thingino `ircut` script's fleet-proven timing |
