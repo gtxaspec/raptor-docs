@@ -59,11 +59,34 @@ by first byte (RFC 7983):
 | `rwd_ice.c` | ICE-lite STUN binding request/response, NAT hole punch |
 | `rwd_sdp.c` | SDP offer parsing, SDP answer generation with ICE candidates |
 | `rwd_signaling.c` | WHIP HTTP/HTTPS endpoint (POST /whip, DELETE /whip/{session}) |
-| `rwd_media.c` | Ring reader → SRTP sender for video + audio |
+| `rwd_media.c` | Ring readers, per-client send threads, packetize/SRTP |
+| `rwd_sendq.c` | Bounded per-client video send queue (purge on overflow) |
 | `rwd_webtorrent.c` | WebTorrent tracker client for external sharing (optional) |
 | `rwd.h` | Shared types: client, server, DTLS context, SDP offer |
 | `webrtc.html` | Embedded local viewer page (served at `GET /webrtc`) |
 | `share.html` | External viewer page (WebTorrent) |
+
+### Media path
+
+The video reader thread only copies: each frame is pushed into a
+bounded per-client send queue (`rwd_sendq.c`, 32 slots) and a
+per-client send thread pays the packetize/SRTP/socket cost. The
+reader has to stay inside the refmode copy budget (see the ring
+consumer guide) — the encoder recycles its output buffers after
+pool-depth frame intervals, two buffers at full resolution — so
+nothing slow may run between reads. Sending inline from the reader
+was exactly that mistake: a main-stream keyframe costs tens of
+milliseconds of software SRTP, every read after it failed the
+buffer-generation check, and live view collapsed into a
+keyframe-per-GOP slideshow.
+
+A client whose queue overflows cannot drain at stream rate: the
+queue is purged whole, the client re-arms waiting-for-keyframe, and
+an IDR is requested (rate-limited) — one slow viewer degrades only
+itself. Audio frames are small enough to stay inline on the audio
+reader. Teardown shuts the queue and joins the send thread before
+dropping the client's transports; the send thread never takes
+`clients_lock`, so joining under it cannot deadlock.
 
 Both viewer pages support a `?debug` query parameter that enables
 verbose console logging: ICE candidates, SDP offer/answer (collapsed

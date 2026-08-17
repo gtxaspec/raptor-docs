@@ -169,8 +169,25 @@ consumers that process frames at their own pace.
 |--------|---------|
 | `0` | Success. `length` and `meta` are filled. |
 | `-EAGAIN` | No new data since last read. |
-| `RSS_EOVERFLOW` | Consumer fell behind. `read_seq` is advanced to the oldest available slot. Call `rss_ring_request_idr()` to get a keyframe. |
-| `-ENOSPC` | Frame is larger than `dest_size`. |
+| `RSS_EOVERFLOW` | Consumer fell behind, **or a refmode validation failed** (the producer recycled the encoder buffer mid-copy, replaced the backing region, or the slot was lapped — one return code covers them all). `read_seq` is advanced to the newest slot. Call `rss_ring_request_idr()` to get a keyframe. |
+| `-ENOSPC` | Frame is larger than `dest_size`. `read_seq` has **already advanced past the frame** and `*length` holds the needed size: grow the buffer and continue, so it stays a one-frame hiccup. An encoder restart (live set-resolution) can raise the per-buffer stride mid-life, so a buffer sized at ring open is not sized forever. Treating this as a generic error either re-reads the same frame forever (if you discard the advanced `read_seq`) or silently drops every frame (if you keep it) — both shipped as real bugs. |
+
+### The refmode copy budget
+
+In refmode the frame bytes live in the encoder's own output buffers,
+and the producer recycles those after **pool-depth frame intervals**
+— as few as two buffers at full resolution, i.e. a ~66 ms budget at
+30 fps. A consumer must finish `rss_ring_read()`'s copy inside that
+window or the post-copy validation rejects the frame. The rule that
+follows: **nothing slow may run on the reader loop between reads.**
+Copy the frame out and hand it to another thread; per-packet work
+(packetization, encryption, a socket that can push back) belongs on
+the other side of a bounded queue. rsd and rwd use a per-client send
+queue; rsr rides libsrt's internal send buffer. A reader that sends
+inline works on small streams and collapses on main-stream keyframes
+— tens of milliseconds of work per frame — into a permanent
+reject/IDR-request cycle that looks like a keyframe slideshow at the
+receiver.
 
 
 ### Producer Restarts
