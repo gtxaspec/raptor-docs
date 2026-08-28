@@ -90,6 +90,8 @@ Video producer selection for RVD.
 |-----|------|---------|-------------|
 | `video_backend` | string | `imp` | `imp` (Ingenic SDK pipeline, the default — an omitted key behaves identically) or `v4l2` (opt-in V4L2 NV12 capture → DMA-BUF → OpenIMP H.264, currently a T41 main-stream path) |
 | `video_device` | string | `/dev/video0` | Capture device for the V4L2 backend |
+| `vui_full_range` | bool | `true` | Correct the SPS VUI to declare full-range video. The ISP hands the encoder full-range pixels (coded luma spans 0–255) but the encoder's VUI declares limited range, so a spec-honoring player rescales 16–235 and clips both ends. Length-preserving single-bit edit at frame fetch, both codecs |
+| `vui_matrix` | string | `smpte170m` | Colour matrix to declare in the SPS VUI: `smpte170m`/`bt601` (6), `bt470bg` (5), `bt709` (1), `unspecified` (2), or `keep` (leave the encoder's value). The ISP converts with its BT.601 full-range table (firmware boot default; nothing in the stack reprograms it) while the encoder declares BT.709, so players reconstruct hues with the wrong matrix |
 
 The V4L2 backend requires a build with `V4L2_OPENIMP=1` (raptor and
 raptor-hal); a default build rejects `video_backend = v4l2` at startup
@@ -326,7 +328,7 @@ and RSD-555 (live555-based). Both backends read from this section.
 | `backchannel` | bool | `false` | Two-way audio (ONVIF Profile T). Offers PCMU, PCMA, opus, AAC and L16 on one sendonly section; the client picks by sending, TCP interleaved or UDP. Decoded client audio lands in the `speaker` ring; rsd answers with RTCP receiver reports |
 | `backchannel_codecs` | string | `` (all) | Restrict the offer, e.g. `pcmu,opus`. Clamped to what the build carries; a disabled codec's packets are dropped like a never-offered payload type. Read per session, so `raptorctl rsd set-backchannel-codecs <list>` applies without a restart (`""` = all). Excluding PCMU (the ONVIF baseline) is honored but warned. `raptorctl rsd status` names the effective offer; `clients` names each session's active codec |
 | `jpeg` | bool | `false` | Serve the JPEG rings over RTSP at `/jpeg` and `/jpeg_sub` (RFC 2435 MJPEG, RSD only). RVD encodes JPEG on demand, so frames flow only while a consumer holds the ring |
-| `out_buffer_size` | int | `262144` | live555 OutPacketBuffer max size (RSD-555 only) |
+| `out_buffer_size` | int | `-1` (auto) | live555 sink staging buffer (RSD-555 only). live555 silently truncates any access unit larger than this — every oversized keyframe loses its bottom rows — so the default sizes video sinks from that ring's frame bound (the encoder's stream buffer) and audio sinks small; an explicit value pins one size for every sink and warns when it sits below the bound |
 | `sei_timecode` | bool | `true` (sample conf ships `false`) | Send a MISB ST 0604 UTC timecode SEI with every video frame (RSD only; ~36 bytes/frame, spliced before the first VCL NAL; survives client-side `-c copy` recording) |
 
 **Endpoint aliases:**

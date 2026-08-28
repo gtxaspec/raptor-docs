@@ -319,6 +319,39 @@ The ring header carries stream metadata set by the producer:
 | `nal_type` | NAL unit type for video, codec ID for audio |
 | `data_offset` | Internal (offset into data region) |
 | `data_length` | Frame payload size in bytes |
+| `src_seq` | The SOURCE's frame counter (encoder output sequence), stamped by the producer since ring version 5. `RSS_SRC_SEQ_NONE` (UINT32_MAX) on frames with no counter: audio, JPEG channels, file producers |
+
+### Source-loss accounting (ring v5)
+
+`write_seq` counts frames the ring published, so a `write_seq` gap can
+only ever mean ring overflow. `src_seq` is the encoder's own output
+counter, so a gap between consecutive stamped frames is a frame the
+encoder produced that never reached the ring. The producer maintains
+the split in the header, readable through:
+
+```c
+typedef struct {
+    uint32_t drop_source;    /* source frames never fetched by producer */
+    uint32_t drop_publish;   /* fetched frames never published          */
+    uint32_t src_seq_resets; /* sequence-domain changes (restarts)      */
+    uint32_t src_seq_last;   /* last stamped src_seq, else NONE         */
+} rss_ring_loss_t;
+void rss_ring_get_loss(rss_ring_t *ring, rss_ring_loss_t *out);
+```
+
+Reconciliation for a stamped stream:
+`source frames = published + drop_source + drop_publish`, with
+`src_seq_resets` marking domain boundaries (encoder restart, counter
+rewrap) where accounting rebases instead of recording a bogus jump.
+
+Semantics, calibrated on hardware: the SDK counter counts what the
+encoder *emits*, so deliberate rate shaping — an encoder fps divider,
+rate-control decisions — creates no false loss; a healthy pipeline
+holds all counters at zero indefinitely. Nonzero `drop_source` is
+real, unexplained loss between the encoder and the producer. Counters
+are per ring incarnation (they reset when the producer recreates the
+ring). `rvd status` exposes them per stream; `ringdump <ring>` prints
+them on the `Src seq:` line.
 
 ### Converting timestamps to UTC
 

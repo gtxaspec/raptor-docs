@@ -107,6 +107,14 @@ backend" rather than touching uninitialized SDK state.
 | `enc-get <ch> <param>` | Generic encoder parameter get |
 | `enc-list [ch]` | List available encoder parameters |
 
+`status` reports per-stream geometry, codec and rate control, and --
+for streams that stamp a source frame counter (video; JPEG channels do
+not) -- the loss ledger: `drop_source` (encoder frames the producer
+never fetched), `drop_publish` (fetched but never published),
+`src_seq_resets` (encoder restarts). All three hold at zero on a
+healthy pipeline; the ring consumer guide covers the semantics.
+`ringdump <ring>` prints the same counters on its `Src seq:` line.
+
 ### Encoder Queries
 
 | Command | Description |
