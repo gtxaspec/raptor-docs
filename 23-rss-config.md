@@ -482,7 +482,7 @@ tuning knob.
 | `gpio_irled2_active_low` | bool | `false` | 940 bank lights on 0 |
 | `ir850` | bool | `true` | Enable 850nm IR LED (visible glow, stronger illumination) |
 | `ir940` | bool | `false` | Enable 940nm IR LED (invisible, weaker illumination). Auto-enabled after pin discovery when 940 is the board's only bank and no `ir940` key is set; an explicit `false` wins |
-| `pulse_ms` | int | `10` | Dual-GPIO ircut coil pulse width in ms (1-1000). 10 matches the thingino `ircut` script's fleet-proven timing |
+| `pulse_ms` | int | `100` | Dual-GPIO ircut coil pulse width in ms (1-1000). 10ms moved some filters intermittently; 100ms measures reliable, and board metadata (thingino.json delay_us) or an explicit setting still wins |
 | `night_fps` | int | `0` | Night sensor rate (0 = off). Entering night drops the sensor to this rate via rvd's transient `set-sensor-fps` (encoder rate control and GOP follow, IDR spacing holds in seconds); day restores the boot rate. Frame period bounds integration time, so a lower rate lets AE trade gain (noise) for photons. The luma trigger's baselines are sampled inside the night regime and stay valid; with `trigger = gain`, calibrate `day_threshold` with this enabled |
 
 **Luma trigger (default):**
