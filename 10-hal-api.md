@@ -465,15 +465,37 @@ typedef struct {
  */
 #define RSS_MAX_SENSORS 3
 
+/* T40 dual-sensor ISP input modes (IMPISPDualSensorMode) */
+typedef enum {
+    RSS_DUAL_MODE_DEFAULT = 0,  /* platform default: ALLCACHED on T40 */
+    RSS_DUAL_MODE_BYPASS,       /* dual-sensor module off */
+    RSS_DUAL_MODE_DIRECT,       /* no raw frame cache */
+    RSS_DUAL_MODE_SELECT,       /* output one sensor at a time */
+    RSS_DUAL_MODE_SINGLECACHED, /* cache one sensor's raw frames */
+    RSS_DUAL_MODE_ALLCACHED,    /* cache both sensors' raw frames */
+} rss_dual_mode_t;
+
 typedef struct {
     int                 sensor_count;       /* number of active sensors */
     rss_sensor_config_t sensors[RSS_MAX_SENSORS];
 
-    /* MIPI switch GPIO (T23 dual sensor); -1 = unused */
-    int                 mipi_switch;
+    /* MIPI switch GPIO config (T23 dual/triple sensor; ignored elsewhere) */
+    struct {
+        bool     enable;
+        uint16_t switch_gpio;               /* GPIO controlling the MIPI switch */
+        uint16_t main_gstate;               /* GPIO state selecting the main sensor */
+        uint16_t sec_gstate;                /* GPIO state selecting the second sensor */
+        uint16_t switch_gpio2;              /* second GPIO (triple camera only) */
+        uint16_t thr_gstate[2];
+    } mipi_switch;
 
-    /* Stitch mode for multi-sensor compositing; 0 = independent */
+    /* Image stitching mode (T23 only); 0 = disabled */
     int                 stitch_mode;
+
+    /* How the ISP takes frames from two sensors (T40 only);
+     * RSS_DUAL_MODE_SELECT outputs the sensor at index dual_select */
+    rss_dual_mode_t     dual_mode;
+    int                 dual_select;
 } rss_multi_sensor_config_t;
 ```
 
@@ -1593,8 +1615,7 @@ static inline int rss_hal_init_single(const rss_hal_ops_t *ops, void *ctx,
     rss_multi_sensor_config_t m = {0};
     m.sensor_count = 1;
     m.sensors[0] = *sensor;
-    m.mipi_switch = -1;
-    return ops->init(ctx, &m);
+    return ops->init ? ops->init(ctx, &m) : RSS_ERR_NOTSUP;
 }
 ```
 

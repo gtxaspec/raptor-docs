@@ -125,6 +125,8 @@ df:383264  (second, 10s later)
 | df counter increasing | Encoder can't keep up | Reduce resolution, reduce bitrate, or reduce FPS |
 | df stable at 0 | Encoder OK, look downstream | - |
 | High df with dual-stream | Two encoders competing for VPU time | Reduce sub stream resolution or FPS |
+| Framesource `qbuf` rate below the sensor rate, frequent `queue count: 0` in `/proc/jz/isp/isp-fs` | The encoder holds every framesource buffer, so the ISP skips frames | Raise `nr_vbs` on that stream (e.g. 3) |
+| T40 dual 4K + 2304x1296 at 20 fps stuck near 15 fps, `avpu` irq rate below total ISP output | H.265 encoder throughput ceiling | Use H.264 (kept up with all four streams on the eufy T8416) |
 
 ---
 

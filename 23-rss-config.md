@@ -129,6 +129,8 @@ report them with per-sensor drivers.
 | `video_interface` | int | auto (fallback 0) | Video interface type (MIPI/DVP) |
 | `width` | int | `0` | Sensor width (required for multi-sensor) |
 | `height` | int | `0` | Sensor height (required for multi-sensor) |
+| `dual_mode` | string | platform default | T40 dual-sensor ISP input mode, read from `[sensor0]` only: `allcached` (default), `singlecached`, `direct`, `select`, `bypass` |
+| `dual_select` | int | `0` | T40 `select` mode: index of the sensor the ISP outputs |
 | `antiflicker` | int | `2` | Anti-flicker: 0=off, 1=50Hz, 2=60Hz |
 | `low_latency` | bool | `false` | Encoder immediate output (~100ms savings) |
 

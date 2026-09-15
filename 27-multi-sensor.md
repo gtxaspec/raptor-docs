@@ -22,7 +22,10 @@ Requirements:
 ### T32/T40/T41
 
 These platforms have independent MIPI ports per sensor. No MIPI switch
-needed. Sensors operate simultaneously at full frame rate.
+needed; each sensor runs at its own rate. On T40 the ISP still takes
+frames from both sensors in turn, so the stream rate also depends on the
+dual-sensor mode and buffer counts (see
+[Dual-Sensor ISP Mode (T40)](#dual-sensor-isp-mode-t40)).
 
 ## Sensor Drivers
 
@@ -97,6 +100,37 @@ Key points:
 - `[mipi_switch] enabled = false` — the T23 ISP kernel module handles GPIO
   switching internally via the `mipi_switch_gpio` module parameter
 - Sub stream resolution must differ from sensor resolution (enables scaler)
+
+### Dual-Sensor ISP Mode (T40)
+
+The T40 has one ISP core for both sensors. `dual_mode` in `[sensor0]`
+picks how it takes their frames (`IMPISPDualSensorMode`, set with
+`IMP_ISP_SetCameraInputMode` before the sensors are added):
+
+| `dual_mode` | SDK mode | Meaning |
+|-------------|----------|---------|
+| `allcached` (default) | `DUAL_ALLCACHED` | Both sensors' raw frames are cached |
+| `singlecached` | `DUAL_SINGLECACHED` | One sensor's raw frames are cached |
+| `direct` | `DUAL_DIRECT` | No raw frame cache |
+| `select` | `DUAL_SELECT` | One sensor output at a time; `dual_select` picks it |
+| `bypass` | `SIGLE_BYPASS` | Dual-sensor module off |
+
+```ini
+[sensor0]
+dual_mode = allcached
+dual_select = 0            # select mode only
+```
+
+Leaving `dual_mode` unset keeps ALLCACHED, which is also what the eufy
+T8416 vendor firmware runs. Other platforms ignore the key with a
+warning. `select` and `bypass` are wired up but untested.
+
+Measured on the eufy T8416 (sc830ai 4K + sc3338 2304x1296): the ISP
+paces both sensors' output together, so slowing one sensor slows the
+other's channels too, and `direct` and `singlecached` delivered fewer
+frames than `allcached`. A steady 20 fps on all four streams with both
+sensors at 20 fps needed `nr_vbs = 3` on every stream and H.264; see
+[Frame rate below the sensor rate (T40)](#frame-rate-below-the-sensor-rate-t40).
 
 ### ISP Module Loading (T23)
 
@@ -215,6 +249,26 @@ Check `Mem Free Size` in logcat output.
 Enable crop on main streams by setting `width`/`height` in `[sensor0]`.
 The ISP reports `sensor resolution(0x0)` with dual-sensor drivers;
 crop tells the framesource the actual input resolution.
+
+### Frame rate below the sensor rate (T40)
+
+Check each stage against the sensor rate:
+
+1. Sensor: the VIC frame counts in `/proc/jz/isp/isp-w02` grow at the
+   sensor rate.
+2. ISP output: `qbuf` per `chinx` in `/proc/jz/isp/isp-fs`. If a
+   channel runs slower, sample its `queue count` a few times a second.
+   Frequent `queue count: 0` means the encoder still holds every
+   framesource buffer and the ISP has nowhere to write; raise `nr_vbs`
+   on that stream. `nr_vbs = 3` fixed 4K + 2304x1296 at 20 fps (each
+   extra 4K NV12 buffer costs ~12.4 MB of rmem).
+3. Encoder: compare the `avpu` interrupt rate in `/proc/interrupts`
+   with the total ISP output. On the eufy T8416, H.265 topped out at
+   ~61 frames/s for 4K + 2304x1296 + two 640x360 streams (about 15 fps
+   each with 20 offered); H.264 kept up with all 80.
+
+Raising `isp_clk` to 400 MHz changed nothing on that board, and the
+AVPU stopped encoding at 750 MHz under full load and at 1008 MHz.
 
 ### IVDC (direct mode)
 
