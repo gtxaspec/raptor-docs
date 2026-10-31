@@ -181,10 +181,14 @@ flourescent, twilight, shade, warm_flourescent, custom.
 
 **Green gain:** `g_gain` is last, not in RGB order, because `set-wb
 <mode> <r> <b>` was the established form. It applies only to the T41,
-whose manual mode writes the AWB RGB coefficients rather than the AWB
-gain pair; the vendor gains carry no green. Omit it and the green
-already set is kept -- supplying 0 means the same thing, since zero is
-black and never a value worth writing.
+whose manual mode writes the AWB RGB channel offsets rather than the AWB
+gain pair. The header documents the gain pair as the manual control, but
+on that part it is inert -- measured: it reads back exactly and never
+reaches the picture -- while the offsets do take effect, and they have a
+green. Omit `g_gain` and the green already set is kept; 0 means the same,
+since zero is black and never worth writing. Neutral is near 1024 (a
+fresh pipeline reads 1025/1017/1015). Leaving manual puts the offsets
+back, so `set-wb auto` really does restore the picture.
 
 **Platform availability:** dpc, drc, defog-strength require T23 or
 T31. backlight-comp requires T23 or T31. highlight-depress works on
@@ -196,7 +200,8 @@ T20 through T31.
 |---------|-------------|
 | `get-isp` | All ISP settings as JSON |
 | `get-wb` | White balance mode and gains |
-| `get-rgb-coefft` | Manual WB RGB coefficients (T41; a different control from `get-wb`) |
+| `get-rgb-coefft` | AWB RGB channel offsets (~1024 neutral); on the T41 this is what manual WB writes |
+| `set-rgb-coefft <r> <g> <b>` | Set those offsets directly |
 | `get-exposure` | Current exposure (gain, luma, EV, WB gains) |
 
 ### Snapshot Capture
