@@ -1012,8 +1012,8 @@ Pipeline commands:
 | `set-max-again <val>` | Max analog gain |
 | `set-max-dgain <val>` | Max digital gain |
 | `set-defog <0\|1>` | Defog enable |
-| `set-wb <mode> [r] [b]` | White balance (auto/manual/daylight/etc) |
-| `get-wb` / `get-isp` / `get-exposure` | Query ISP state |
+| `set-wb <mode> [r] [b] [g]` | White balance (auto/manual/daylight/etc; g = T41 only) |
+| `get-wb` / `get-rgb-coefft` / `get-isp` / `get-exposure` | Query ISP state |
 
 **RAD commands:**
 
