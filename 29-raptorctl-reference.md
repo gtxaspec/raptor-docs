@@ -21,8 +21,8 @@ raptorctl -j '{"daemon":"rvd","cmd":"set-brightness","value":128}'
 raptorctl -j '[{"daemon":"rvd","cmd":"get-isp"},{"daemon":"rad","cmd":"status"}]'
 ```
 
-**Daemons:** rvd, rsd, rad, rod, rhd, ric, rmr, rmd, rwd, rwc, rfs,
-rsp, rsr.
+**Daemons:** rvd, rsd, rad, rod, rhd, ric, rmr, rmd, rtd, rwd, rwc,
+rfs, rsp, rsr.
 
 ---
 
@@ -432,7 +432,16 @@ capture time. RHD's `status` reports `exif_timestamp` and
 
 ---
 
-## 13. RSP -- RTMP/RTMPS Push
+## 13. RTD -- Telematics (GPS, g-sensor)
+
+| Command | Description |
+|---------|-------------|
+| `status` | Last record: `gps` (receiver talking), `fix`, `utc`, `lat`, `lon`, `alt`, `speed_kn`, `course`, `sats`, `hdop`, `accel` [x,y,z] and `accel_dev` in g, `event` (impact clip held) |
+| `set-speed-unit <kmh\|mph>` | OSD speed unit, applied from the next epoch; written to raptor.conf by `config save` |
+
+---
+
+## 14. RSP -- RTMP/RTMPS Push
 
 | Command | Description |
 |---------|-------------|
@@ -442,7 +451,7 @@ capture time. RHD's `status` reports `exif_timestamp` and
 
 ---
 
-## 14. RSR -- SRT Listener
+## 15. RSR -- SRT Listener
 
 | Command | Description |
 |---------|-------------|
@@ -450,7 +459,7 @@ capture time. RHD's `status` reports `exif_timestamp` and
 
 ---
 
-## 15. Examples
+## 16. Examples
 
 ```sh
 # Debug a daemon
@@ -506,7 +515,7 @@ raptorctl config save
 
 ---
 
-## 16. JSON Mode
+## 17. JSON Mode
 
 For scripting or when you need structured output, use `-j`:
 
@@ -531,7 +540,7 @@ requested data.
 
 ---
 
-## 17. Notes
+## 18. Notes
 
 - **Persistence:** Runtime changes are in-memory only until
   `raptorctl config save` writes them to disk. A daemon restart

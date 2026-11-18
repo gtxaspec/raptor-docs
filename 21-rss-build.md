@@ -65,6 +65,7 @@ raptor/                  # main repo: all daemons and tools
 │   ├── rmr.h
 │   ├── rmr_main.c
 │   ├── rmr_mux.c / rmr_mux.h
+│   ├── rmr_gps.c / rmr_gps.h
 │   ├── rmr_nal.c / rmr_nal.h
 │   ├── rmr_prebuf.c / rmr_prebuf.h
 │   ├── rmr_sign.c / rmr_sign.h
@@ -75,6 +76,12 @@ raptor/                  # main repo: all daemons and tools
 │   ├── rmd.h
 │   ├── rmd_main.c
 │   └── rmd_actions.c
+├── rtd/                 # telematics daemon (GPS, g-sensor)
+│   ├── Makefile
+│   ├── rtd.h
+│   ├── rtd_main.c
+│   ├── rtd_nmea.c
+│   └── rtd_accel.c
 ├── rwd/                 # WebRTC daemon (WHIP, DTLS-SRTP)
 │   ├── Makefile
 │   ├── rwd.h
@@ -234,6 +241,7 @@ make distclean
 | RIC | raptor-ipc + raptor-common |
 | RMR | raptor-ipc + raptor-common |
 | RMD | raptor-ipc + raptor-common |
+| RTD | raptor-ipc + raptor-common (+ libm) |
 | RWD | raptor-ipc + raptor-common + mbedTLS |
 | RWC | raptor-ipc + raptor-common |
 

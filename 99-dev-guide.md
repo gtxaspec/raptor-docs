@@ -64,6 +64,7 @@ rod/   -- OSD rendering (libschrift text, detection boxes)
 ric/   -- IR-cut and day/night control
 rmr/   -- Recording (fMP4, H.264/H.265/MJPEG; continuous, motion, timelapse)
 rmd/   -- Motion detection state machine
+rtd/   -- Telematics: GPS and g-sensor (dashcam records, OSD, impacts)
 rwd/   -- WebRTC server (WHIP signaling, DTLS-SRTP)
 rwc/   -- USB webcam gadget (UVC+UAC)
 rfs/   -- File source (MP4/Annex B playback into rings)

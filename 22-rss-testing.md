@@ -50,8 +50,9 @@ cd raptor-ipc/tests && make test
 |-------|------|------:|----------|
 | ric_json | test_ric_json.c | 14 | thingino.json GPIO discovery: int and dual-string pins, raptor.conf precedence, range limits, missing/empty/garbage/no-gpio/over-cap files, and the >2 KB document with pins at the tail (regression for the truncated-read bug) |
 | nal | test_nal.c | 12 | Annex B → AVCC conversion (H.264, H.265, 3-byte start codes), empty/overflow, single NAL, SPS/PPS extraction |
-| prebuf | test_prebuf.c | 9 | Pre-buffer push/count, slot eviction, keyframe find by age, frame-at lookup, iterate with data verification, data region wrap integrity |
+| prebuf | test_prebuf.c | 10 | Pre-buffer push/count, slot eviction, keyframe find by age, frame-at lookup, iterate with data verification, data region wrap integrity, data-region overrun (frames whose bytes were reused are retired, not replayed) |
 | mux | test_mux.c | 17 | fMP4 box construction (moov/moof/mdat/mfra), H.264/H.265/PCMU/AAC/Opus codec paths, multi-fragment, large timestamps (64-bit tfdt), CTS offset, empty/double flush, A/V duration verification |
+| gps | test_gps.c | 4 | NMEA RMC/GGA parsing (any talker, signed coordinates, UTC from date+time), bad and missing checksums rejected, the 1980 power-on date is not a time, `freeGPS` box layout field by field, `gps ` index reserved directly after `mvhd` with overflow beyond capacity dropped |
 | sdp | test_sdp.c | 17 | SDP offer parsing, answer generation, ICE candidate extraction, codec negotiation |
 | codec | test_codec.c | 32 | Codec detection, parameter set parsing, frame type identification, AAC accumulator timestamps on the exact sample grid (8/16/48 kHz LC and 48 kHz HE) |
 | ring | test_ring.c | 21 | Ring buffer create/open, publish/read, overflow, IDR request, demand signaling |
@@ -106,11 +107,20 @@ and a requested H.264 IDR reaches the ring as `H264_IDR` with
 `key=1` — with the inverse mismatches (IDR marked non-key, slice
 marked key) asserted as failures.
 
+The telematics leg runs RTD on a generated minute of NMEA through
+`gps_replay` (no receiver on the host): `rtd status` must report a
+fix, RMR must attach the `telematics` ring, `set-speed-unit` must
+accept `mph` and reject anything else, and the closed segment must
+carry indexed GPS records that `rverify` still verifies (and ExifTool,
+when installed, reads point for point). A copy with one index entry
+shifted must fail verification. The leak soak runs RTD on the same
+replay.
+
 ### 2.1 Mock HAL
 
 `tests/mock_hal.c` implements the full `rss_hal_ops_t` vtable with
 deterministic synthetic frames. RVD, RAD, and ROD link against the mock.
-RSD, RHD, RIC, RMD, RMR, RWD, and RWC have no HAL dependency and build
+RSD, RHD, RIC, RMD, RTD, RMR, RWD, and RWC have no HAL dependency and build
 natively. RWD links against the host's mbedTLS for DTLS-SRTP.
 
 `./build-asan.sh` compiles all daemons to `asan-out/` with
@@ -458,7 +468,7 @@ timestamp to ring readout. Reports min/avg/max in milliseconds.
 ### 6.4 On-Target Quick Checks
 
 ```sh
-for d in rvd rad rod rsd rmr ric rhd rmd rwd rwc; do
+for d in rvd rad rod rsd rmr ric rhd rmd rtd rwd rwc; do
     pid=$(pidof $d 2>/dev/null)
     if [ -n "$pid" ]; then
         rss=$(awk '/VmRSS/{print $2}' /proc/$pid/status)

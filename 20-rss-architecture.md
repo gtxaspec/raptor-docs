@@ -601,7 +601,10 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   (configurable `prebuffer_sec`, max 5) of AVCC video frames and raw audio
   frames. When motion triggers, the pre-buffer is replayed into the clip
   so footage starts before the event. The pre-buffer is sized from bitrate
-  and FPS (~2MB typical). Audio replay is aligned to video duration by
+  and FPS (~2MB typical). A stream running above the configured bitrate
+  wraps the data region before the slot ring fills; every write retires
+  the frames whose bytes it overlaps, so the replayed pre-roll is shorter
+  than `prebuffer_sec` rather than corrupt. Audio replay is aligned to video duration by
   frame count (not timestamps) to avoid A/V desync across rings.
 - **Clip management**: Each clip has its own `clip_write` callback and file
   descriptor — no fd-swapping between continuous and clip muxers.
@@ -614,6 +617,21 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   duration; if motion continues, a new clip is opened without pre-buffer.
 - **Testing**: `raptorctl test-motion [seconds]` sends start/stop directly
   to RMR, bypassing RMD cooldown. Default 10 seconds.
+- **GPS records** (`[recording] gps`, default on): RMR reads RTD's
+  `telematics` ring and writes each record as a top-level 256-byte
+  `free` box in the Novatek dashcam layout (`freeGPS `: UTC time,
+  fix flag, NMEA-style ddmm.mmmm latitude/longitude, speed in knots,
+  course, acceleration in g/256), between fragments of segments and
+  clips; clips also get the pre-roll's records. ExifTool (`-ee`),
+  dashcam players and GPX converters find them through a `gps ` index
+  box (`0x101`, count, then file offset/size pairs) that RMR reserves
+  in `moov` directly after `mvhd` and fills in when the file closes;
+  readers ignore an index placed after the tracks. The index is
+  written after the genesis signature, so `rverify` zeroes its payload
+  before hashing, and fails the file if an entry does not point at a
+  record or the entries are out of file order. The records themselves
+  are ordinary signed bytes. A file cut by power loss keeps its
+  records but has an empty index. Layout: `rmr/rmr_gps.h`.
 - **Storage management**: Configurable segment rotation (`segment_minutes`
   in config) and storage cleanup (oldest segments deleted when free space
   falls below threshold). Clips have separate storage limit (`clip_max_mb`).
@@ -899,6 +917,38 @@ These daemons control hardware peripherals and do not process frame data.
 - **Why separate**: Motion detection policy (cooldown, actions, sensitivity)
   is independent of the IVS hardware pipeline. RMD can be restarted or
   reconfigured without interrupting video streaming or IVS processing.
+
+#### RTD -- Raptor Telematics Daemon
+
+- **Role**: GPS and g-sensor for dashcams. Reads an NMEA receiver
+  (RMC and GGA, any talker) and a MiraMEMS DA221 accelerometer over
+  i2c-dev, both described by the camera's `/etc/thingino.json`
+  (`"gps": {"uart", "baud"}`, `"gsensor": {"model", "i2c", "addr"}`).
+  Exits cleanly when neither is present.
+- **Output**: one `rtd_record_t` (`rtd/rtd.h`) per GPS epoch on the
+  `telematics` ring: UTC time, fix, position, altitude, speed,
+  course, satellites, HDOP, and the accelerometer sample furthest
+  from the resting vector that second. The epoch is published 150 ms
+  after RMC so the rest of the burst lands; a silent receiver falls
+  back to RTD's own one-second clock so acceleration keeps flowing.
+- **OSD**: sets ROD template variables through `set-var`, only on
+  change: `%speed%` `%unit%` `%lat%` `%lon%` `%alt%` `%heading%`
+  `%sats%` `%gps%` `%gx%` `%gy%` `%gz%` `%g%` `%event%`. The speed unit
+  is read every epoch, so `set-speed-unit` applies live.
+- **Impacts**: the resting vector follows a ~2 s low-pass, so mounting
+  angle and slopes do not count; a deviation beyond `impact_g` (after
+  a 2 s warm-up) flags the record, starts an RMR clip (`start`) held
+  `impact_clip_sec` past the last impact, and shows `%event%` = SOS.
+- **Testing without a fix**: `gps_replay` plays an NMEA log one epoch
+  per second, looping, in place of the receiver.
+- **Control commands**: `status` (default) — the last record as JSON;
+  `set-speed-unit kmh|mph`; common config commands.
+- **Dependencies**: librss_ipc, librss_common. No HAL dependency.
+- **IPC**: produces the `telematics` ring; client of ROD and RMR control
+  sockets. Own control socket at `/var/run/rss/rtd.sock`.
+- **Why separate**: the receiver and sensor run on their own clocks and
+  can stall on serial or i2c; keeping them out of RMR and ROD means a
+  dead GPS never delays recording or the overlay.
 
 #### RMC -- Motor Control *(planned, not yet implemented)*
 
@@ -1533,6 +1583,7 @@ raptorctl and daemons, and between daemons when needed.
 /var/run/rss/rmr.sock    -- RMR control socket
 /var/run/rss/ric.sock    -- RIC control socket
 /var/run/rss/rmd.sock    -- RMD control socket
+/var/run/rss/rtd.sock    -- RTD control socket
 /var/run/rss/rwd.sock    -- RWD control socket
 /var/run/rss/rwc.sock    -- RWC control socket
 ```
@@ -1779,7 +1830,7 @@ esac
 
 **Core vs. optional daemons:** The default init script starts the five
 core daemons unconditionally: RVD, RAD, ROD, RSD, and RIC. The
-remaining daemons (RHD, RMR, RMD, RWD, RWC) are optional -- enable
+remaining daemons (RHD, RMR, RMD, RTD, RWD, RWC) are optional -- enable
 them in `raptor.conf` and add their `start-stop-daemon` lines to the
 init script, or start them manually. Each daemon checks its own
 `[section] enabled` flag and exits cleanly if disabled, so adding a
@@ -2007,6 +2058,7 @@ Core 1 (CPU1):
   - ROD (OSD text rendering)
   - RMR (motion-triggered recording, file I/O)
   - RMD (motion detection state machine)
+  - RTD (GPS and g-sensor)
   - RWC (USB webcam gadget)
   - RFS (file source playback)
   - RIC (IR-cut and day/night control)
@@ -2077,7 +2129,7 @@ cpu_affinity = 1
 - RAD: `SCHED_FIFO` priority 40 -- audio frame deadlines are real-time
 - RSD: `SCHED_FIFO` priority 30 -- RTSP packet deadlines matter for jitter
 - RWD: `SCHED_FIFO` priority 30 -- WebRTC media deadlines match RTSP
-- ROD/RHD/RMR/RMD/RWC/RFS/RIC: `SCHED_OTHER` (normal) -- periodic or
+- ROD/RHD/RMR/RMD/RTD/RWC/RFS/RIC: `SCHED_OTHER` (normal) -- periodic or
   event-driven workloads with relaxed latency requirements
 
 ---

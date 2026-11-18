@@ -602,6 +602,7 @@ Media recording to SD card for RMR.
 | `sei_timecode` | bool | `true` (sample conf ships `false`) | Embed a MISB ST 0604 UTC timecode SEI in every recorded frame (H.264/H.265; skipped for MJPEG or when the ring has no UTC mapping) |
 | `sign` | bool | `true` (sample conf ships `false`) | Sign recordings with an Ed25519 hash chain (uuid boxes; verify with `rverify`) |
 | `sign_key` | string | `/etc/raptor/sign_ed25519.key` | Signing key seed. Generated on first use; public key exported to `<sign_key>.pub` |
+| `gps` | bool | `true` | Embed RTD's `telematics` records (GPS, g-sensor) as indexed dashcam GPS boxes, readable by `exiftool -ee` and GPX converters. No effect without RTD |
 
 **Provenance signing:** every segment and clip carries a chain of
 164-byte `uuid` signature boxes: a genesis box over the init segment
@@ -647,6 +648,50 @@ sample lands within a frame; below the GOP length the sampler
 degenerates to taking every natural keyframe. After a stall the
 sampler takes one frame and reschedules -- a timelapse never
 back-fills a burst for time that produced nothing.
+
+---
+
+### `[telematics]`
+
+GPS receiver and g-sensor for RTD (dashcams). The hardware comes from
+`/etc/thingino.json`, not from here:
+
+```json
+"gps": { "uart": "/dev/ttyS1", "baud": 9600 },
+"gsensor": { "model": "da221", "i2c": 2, "addr": 39 }
+```
+
+RTD exits when neither is present. The g-sensor needs the kernel's
+i2c-dev (`/dev/i2c-*`).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Start RTD (it still exits without hardware) |
+| `gps_device` | string | -- | Overrides `gps.uart` |
+| `gps_replay` | string | -- | Replay an NMEA log, one epoch per second, looping, instead of the receiver |
+| `speed_unit` | string | `kmh` | `%unit%` and `%speed%` in `kmh` (Km/h) or `mph`; `raptorctl rtd set-speed-unit` changes it live |
+| `osd` | bool | `true` | Feed ROD template variables |
+| `accel_hz` | int | `50` | G-sensor sample rate (1-400) |
+| `impact_g` | float | `1.5` | Deviation from the resting vector that counts as an impact; `0` disables |
+| `impact_clip` | bool | `true` | An impact starts an RMR event clip (`[recording] mode = both` or `motion`) and shows `%event%` |
+| `impact_clip_sec` | int | `30` | How long the clip is held after the last impact |
+
+**OSD variables** (for `[osd.<name>] template`): `%speed%` (unpadded),
+`%unit%`, `%lat%` (`N:34.051`), `%lon%` (`W:118.235`), `%alt%`,
+`%heading%`, `%sats%`, `%gps%` (`GPS`, `NO FIX`, `NO GPS`), `%gx%`
+`%gy%` `%gz%` `%g%` (acceleration, g), `%event%` (`SOS` while an
+impact clip is held). The stock dashcam overlay is one element:
+
+```ini
+[osd]
+time_format = %Y/%m/%d %H:%M:%S
+
+[osd.dashcam]
+type = text
+template = %time%   %lat%  %lon%  %speed%%unit%
+position = bottom_left
+max_chars = 52
+```
 
 ---
 
@@ -842,7 +887,7 @@ target to `stderr`.
 
 ---
 
-### Per-Daemon Sections: `[rvd]`, `[rsd]`, `[rsd-555]`, `[rad]`, `[rod]`, `[rhd]`, `[rwd]`, `[rwc]`, `[rmr]`, `[rmd]`, `[rfs]`, `[rsp]`, `[ric]`
+### Per-Daemon Sections: `[rvd]`, `[rsd]`, `[rsd-555]`, `[rad]`, `[rod]`, `[rhd]`, `[rwd]`, `[rwc]`, `[rmr]`, `[rmd]`, `[rtd]`, `[rfs]`, `[rsp]`, `[ric]`
 
 CPU affinity and real-time scheduling. Only meaningful on dual-core
 SoCs (T40, T41, A1).
