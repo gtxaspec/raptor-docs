@@ -112,8 +112,11 @@ The telematics leg runs RTD on a generated minute of NMEA through
 fix, RMR must attach the `telematics` ring, `set-speed-unit` must
 accept `mph` and reject anything else, and the closed segment must
 carry indexed GPS records that `rverify` still verifies (and ExifTool,
-when installed, reads point for point). A copy with one index entry
-shifted must fail verification. The leak soak runs RTD on the same
+when installed, reads point for point). `rverify -g` must list every
+record as signed. A copy with one index entry shifted must fail
+verification, a copy with one point moved must fail that point's
+span, and a copy cut mid-file must report truncation and still
+verify. The leak soak runs RTD on the same
 replay.
 
 ### 2.1 Mock HAL

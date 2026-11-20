@@ -629,9 +629,15 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   readers ignore an index placed after the tracks. The index is
   written after the genesis signature, so `rverify` zeroes its payload
   before hashing, and fails the file if an entry does not point at a
-  record or the entries are out of file order. The records themselves
-  are ordinary signed bytes. A file cut by power loss keeps its
-  records but has an empty index. Layout: `rmr/rmr_gps.h`.
+  record or the entries are out of file order; entries past the end of
+  a cut file are reported as truncation. The records themselves are
+  ordinary signed bytes. A file cut by power loss keeps its records
+  but has an empty index. `rverify -g` lists every record (time,
+  position, speed, course, satellites, acceleration, impact) with the
+  verdict of the span that signs it -- signed, hash ok (no key),
+  FAILED, or unsigned after the last signature -- found through the
+  index and by walking the file, so it also reads unindexed raptor
+  files and stock Novatek clips (unsigned). Layout: `rmr/rmr_gps.h`.
 - **Storage management**: Configurable segment rotation (`segment_minutes`
   in config) and storage cleanup (oldest segments deleted when free space
   falls below threshold). Clips have separate storage limit (`clip_max_mb`).
