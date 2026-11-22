@@ -170,6 +170,10 @@ Encoder groups are assigned sequentially across sensors:
 Sensor 0 ring names are identical to single-sensor — no consumer changes
 needed for existing single-sensor deployments.
 
+Slots 1 and 2 can also be filled by an external camera through RCD
+(an EthCam rear module on a dashcam, for example): same ring names, same
+consumers. See [31 - External Cameras](31-external-cameras.md).
+
 ### RTSP Endpoints
 
 ```

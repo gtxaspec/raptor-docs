@@ -443,6 +443,13 @@ capture time. RHD's `status` reports `exif_timestamp` and
 | `event` | Manual event: handled like an impact (clip, `%event%`, flagged record) |
 | `set-speed-unit <kmh\|mph>` | OSD speed unit, applied from the next epoch; written to raptor.conf by `config save` |
 
+### RCD -- External cameras
+
+| Command | Description |
+|---------|-------------|
+| `status` | Cameras: `type`, `ip`, `mac`, `slot`, `state` (connecting, streaming, error), `codec`, `fw`, `sessions`, `error`; per stream `width`, `height`, `fps`, `frames`, `keyframes`, `bytes`, `dropped` |
+| `reconnect [n]` | New session for camera n, all cameras without n (`restart` restarts the daemon) |
+
 ---
 
 ## 14. RSP -- RTMP/RTMPS Push

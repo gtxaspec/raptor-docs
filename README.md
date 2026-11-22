@@ -37,6 +37,7 @@ Architecture docs, design notes, SDK reference, and API documentation for the
 - [28 - IVS Detection](28-ivs-detection.md) - Motion tracking, person detection, YOLO inference
 - [29 - raptorctl Reference](29-raptorctl-reference.md) - Command reference
 - [30 - FPS Troubleshooting](30-fps-troubleshooting.md) - FPS drop diagnosis
+- [31 - External Cameras](31-external-cameras.md) - RCD, the driver model, Novatek EthCam protocol and firmware
 
 ### Development
 - [99 - Dev Guide](99-dev-guide.md) - Development workflow and conventions

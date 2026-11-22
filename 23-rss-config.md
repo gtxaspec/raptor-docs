@@ -696,6 +696,38 @@ position = bottom_left
 max_chars = 52
 ```
 
+
+### `[cameras]` and `[camera1]`..`[camera4]`
+
+External cameras (RCD), each published as an extra sensor in slot 1 or 2
+(`sN_main` / `sN_sub`). See [31 - External Cameras](31-external-cameras.md).
+
+`[cameras]`:
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Start RCD |
+| `iface` | string | -- | Camera link; empty leaves networking alone |
+| `local_ip` | string | `192.168.0.3` | Our address on the link (EthCam modules expect .3) |
+| `netmask` | string | `255.255.255.0` | |
+| `dhcp` | bool | `true` | DHCP server on `iface`, static lease per camera `mac` |
+| `dhcp_start` / `dhcp_end` | string | `192.168.0.12` / `.20` | Pool for unknown clients |
+| `power_gpio` | int | `-1` | Camera supply switch (USB529Pro 860 rear connector: 116) |
+| `power_cycle` | bool | `true` | Power-cycle the cameras when RCD starts |
+
+`[cameraN]`:
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | |
+| `type` | string | `ethcam` | Driver: `ethcam` (Novatek EthCam rear module) |
+| `ip` | string | -- | Camera address; with `mac` also its DHCP lease |
+| `mac` | string | -- | `aa:bb:cc:dd:ee:ff`; EthCam MACs come from the chip ID |
+| `slot` | int | N | Sensor slot 1 or 2; one camera per slot |
+| `codec` | string | `h264` | `h264` or `h265` |
+| `sub` | bool | `true` | Also the display stream (`sN_sub`) |
+| `main_data_mb` / `sub_data_mb` | int | `3` / `1` | Ring data sizes |
+
 ---
 
 ### `[motion]`

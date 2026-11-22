@@ -251,6 +251,15 @@ now extracted from `rwd_main.c` at build time rather than copied again.
 
 ### 2.7 RAC Beep Suite
 
+`tests/test-rcd.sh` runs RCD against two fake Novatek EthCam modules
+(`tests/fake_ethcam.py`, H.264 and H.265, clips made by ffmpeg at test
+time): rings decode, stream info, zero loss on a clean link, skipped
+frames counted as `drop_source` and damaged ones as dropped (the fake's
+`--skip` / `--corrupt` faults prove both counters fire), keyframe
+requests, loss detection, reconnect. Protocol parsing and the clock
+mapper have unit tests in `tests/test_ethcam.c`. Details:
+[31 - External Cameras](31-external-cameras.md) §5.
+
 `tests/test-rac.sh` exercises `rac beep` with no rad and no hardware:
 argument validation, then a real 1 kHz / 1 s beep published to the
 speaker ring, captured with `ringdump -d` and verified sample-exact --

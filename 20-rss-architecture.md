@@ -973,6 +973,35 @@ These daemons control hardware peripherals and do not process frame data.
   can stall on serial or i2c; keeping them out of RMR and ROD means a
   dead GPS never delays recording or the overlay.
 
+#### RCD -- Raptor Camera Daemon
+
+- **Role**: external cameras as extra sensors. A camera in slot N
+  publishes already-encoded video into `sN_main` / `sN_sub`, so RSD,
+  RWD and RMR use it like an on-board second sensor. First camera type:
+  Novatek EthCam rear modules over Ethernet (dashcams).
+- **Structure**: a camera-neutral core (rings, timestamps, `src_seq`,
+  UTC mapping, stall detection, reconnects, the camera link) and one
+  driver per camera type (`rcd_driver_t` in `rcd/rcd.h`); one thread
+  per camera runs its driver's session.
+- **Timestamps**: the camera's own clock mapped onto `CLOCK_MONOTONIC`
+  (lowest transit delay, slewed for drift, monotonic); every ring
+  carries the monotonic->UTC mapping, so per-frame UTC SEI, signing and
+  `rverify` work as for RVD's rings. Missing frames show up as
+  `drop_source`.
+- **Link**: configures the camera interface, runs `udhcpd` with a static
+  lease per camera MAC, switches the camera power GPIO (power-cycles at
+  start).
+- **Control commands**: `status` (default) — cameras, firmware, streams
+  and counters; `reconnect [n]`; common config commands.
+- **Dependencies**: librss_ipc, librss_common; `raptor_hal.h` for codec
+  and NAL enums only, no HAL library. BusyBox `udhcpd` when DHCP is on.
+- **IPC**: produces `sN_main` / `sN_sub`. Own control socket at
+  `/var/run/rss/rcd.sock`.
+- **Why separate**: a camera on a cable can vanish, stall or reboot at
+  any time; its sessions, reconnects and network setup stay out of RVD.
+- Details, the EthCam protocol and the module firmware:
+  [31 - External Cameras](31-external-cameras.md).
+
 #### RMC -- Motor Control *(planned, not yet implemented)*
 
 - **Role**: Drive pan/tilt/zoom motors via GPIO or UART for PTZ cameras.
