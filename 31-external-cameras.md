@@ -162,6 +162,30 @@ ringdump s1_main -d -s | ffprobe -f h264 -   # inspect the stream
 `restart` is the common command that restarts the whole daemon, hence
 `reconnect` for one camera.
 
+### 3.1 Recording
+
+RMR records the rear camera next to the front one when both rings are
+listed in `[recording]`:
+
+```ini
+[recording]
+streams = main, s1_main:R
+```
+
+Every front file gets a rear partner with the same name plus `_R`
+(`2026-11-22/16-59-00.mp4` and `2026-11-22/16-59-00_R.mp4`, the same in
+`clips/`), split at the same wall-clock boundaries, with its own
+signature chain, the shared GPS records and audio, and SEI timecodes
+from the rear ring's UTC mapping. A clip event opens both. Both share
+the quota, so cleanup removes a pair together. The rear is optional at
+run time: with the camera unplugged or RCD stopped the front records
+on undisturbed, the rear track detaches after 2 s and closes its file
+at the next boundary, and it starts writing again when frames return.
+`raptorctl rmr status` lists both under `tracks`. Each stream's
+pre-buffer (`mode = both`/`motion`) is sized from its own byte rate:
+~14 MB for a 16 Mbit/s rear at `prebuffer_sec = 5`; `prebuffer_max_mb`
+bounds it on small boards. Details: [20 - Architecture](20-rss-architecture.md) (RMR).
+
 ---
 
 ## 4. Novatek EthCam reference
@@ -204,7 +228,7 @@ Novatek SDKs. "Stock" means the dashcam's own firmware.
 | 9009 stream stop | `par=1` both streams | Status 1 |
 | 9012 record info | on 8887 | LIST: width 2560, height 1440, fps 30, tbr 2048000, 0, GOP 30, codec (2 H.264 / 3 H.265), ... |
 | 9014 time sync | 44-byte `struct tm`, full year, month 1-12 | Status 1 (sets the module clock and its own date stamp) |
-| 9015 menu sync | 32 bytes `{Size, WDR, EV, DateImprint, Rotate, Codec, TimeLapse, ...}` | Status 1; **Size is ignored**; codec must match 9032; `par=1` re-enters the mode and drops the command socket |
+| 9015 menu sync | 32 bytes `{Size, WDR, EV, DateImprint, SensorRotate, SensorMirror, Codec, TimeLapse}` | Status 1; **Size is ignored** (only printed); codec (word 6) must match 9032; `par=1` re-enters the mode and drops the command socket. Also saves settings |
 | 9016 keyframe | on 8887/8888 | Status 1; next frame on that stream is an I frame |
 | 9017 display info | on 8888 | LIST: 0, 0, tbr 153600, fps 30, 640, 360, 1800, codec |
 | 9020 / 9021 | firmware send / start (§4.6) | |
@@ -260,7 +284,8 @@ Novatek SDKs. "Stock" means the dashcam's own firmware.
 - **No DHCP and a fixed address** (next section).
 
 All three are firmware changes: see §4.6 for how the firmware is rebuilt and
-loaded over the cable.
+loaded over the cable. **Bitrate and GOP: done this way** (§4.8). No microphone
+on the USB529Pro 860 rear module board, so audio is moot there.
 
 ### 4.5 Firmware and flash
 
@@ -318,6 +343,30 @@ it replaces the whole rtos partition. Keep a full dump of the NOR before the
 first update; a module that does not boot is restored with an SPI
 programmer.
 
+### 4.8 Bitrate, GOP and size in the firmware
+
+The record stream's settings are one entry of the movie size table
+(`g_MovieSizeTable`, 26 entries of 0x6c bytes: size `{w, h, fps, tbr, dar,
+ratio}`, AQ, CBR). On the firmware above, entry 7 (2560x1440P30):
+
+| Address | Field | Stock |
+|---|---|---|
+| 0x687bc0 | target bitrate (tbr), bytes/s | 2048000 |
+| 0x687bf0 | CBR byte rate | 2048000 |
+| 0x687bf4 | CBR GOP | 30 |
+
+Rate control runs at the CBR byte rate x 8; keep tbr >= the CBR rate (the
+encoder layer rejects more). Changing the three words (rebuilt and loaded as in
+§4.6) takes effect at the next power-up, and 9012 reports the new values by
+itself. Verified: 1000000 bytes/s gave a measured 8.0 Mbit/s at 30 fps, GOP
+30, no loss. Above the stock rate the encoder buffer grows (tbr x
+`VdoEncBufSec` 3 s at 0x685950); lower it to 2 for 24 Mbit/s.
+
+The size itself is not taken from settings: every boot the firmware picks
+the size preset from a board strap (2560x1440 or 1920x1080) and sets the
+sensor pipeline size to match, which is why 9015's Size does nothing. The
+display stream is entry 18 (640x360, GOP 1800: one keyframe a minute).
+
 ### 4.7 Pitfalls met on the way
 
 | Symptom | Cause |
@@ -350,6 +399,12 @@ programmer.
   zero loss on a clean link, that skipped frames do count as `drop_source`
   and damaged ones as dropped, keyframe requests, loss detection,
   reconnect, the `reconnect` command, clean exit, no sanitizer reports.
+- `tests/test-rmr-multi.sh` (in `test-all.sh`): RMR recording the mock
+  RVD's `main` and the fake module's `s1_main` together. Checks paired
+  segment and clip files that verify (signature, timecodes, GPS),
+  audio in both, zero loss on both tracks, the front recording on while
+  the module is gone and the rear resuming when it returns, and that a
+  one-stream config keeps its file names and status fields.
 - Not covered by the fake: once-per-boot streaming and the wedge (the
   power GPIO needs real hardware). Verified on a USB529Pro 860: three
   `reconnect`s in a row, each back streaming in 9-10 s, 0 lost or dropped
