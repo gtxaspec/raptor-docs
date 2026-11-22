@@ -955,6 +955,13 @@ These daemons control hardware peripherals and do not process frame data.
   do not count; a deviation beyond `impact_g` on two consecutive
   samples (a lone sample is a corrupted read) after a 2 s warm-up flags the record, starts an RMR clip (`start`) held
   `impact_clip_sec` past the last impact, and shows `%event%` = SOS.
+- **Clock**: with a fix (4+ satellites) RTD sets the system clock and
+  the RTC from GPS when they are more than 2 s off, at most every 10
+  minutes; NTP and GPS agree within that, so they never fight.
+- **Parking**: `set-impact-g` and `event` let the ignition handling
+  (thingino's `ignition` script) lower the threshold while parked and
+  give the protect button an event; RMR's `pause`/`resume` stop and
+  restart continuous recording while clips go on.
 - **Testing without a fix**: `gps_replay` plays an NMEA log one epoch
   per second, looping, in place of the receiver.
 - **Control commands**: `status` (default) — the last record as JSON;

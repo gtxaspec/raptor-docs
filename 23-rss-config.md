@@ -673,6 +673,7 @@ i2c-dev (`/dev/i2c-*`).
 | `gps_replay` | string | -- | Replay an NMEA log, one epoch per second, looping, instead of the receiver |
 | `speed_unit` | string | `kmh` | `%unit%` and `%speed%` in `kmh` (Km/h) or `mph`; `raptorctl rtd set-speed-unit` changes it live |
 | `osd` | bool | `true` | Feed ROD template variables |
+| `set_clock` | bool | `true` | Set the system clock and the RTC from GPS when they are more than 2 s off (fix with 4+ satellites; never from `gps_replay`). A dashcam usually has no network for NTP |
 | `accel_hz` | int | `50` | G-sensor sample rate (1-400) |
 | `impact_g` | float | `1.5` | Deviation from the resting vector that counts as an impact; `0` disables |
 | `impact_clip` | bool | `true` | An impact starts an RMR event clip (`[recording] mode = both` or `motion`) and shows `%event%` |

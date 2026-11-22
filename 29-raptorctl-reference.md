@@ -407,6 +407,8 @@ this makes the whole day/night policy runtime-tunable; only the wiring
 | `disable` | Disable all recording (closes active segments) |
 | `start` | Start motion clip (motion/both modes) |
 | `stop` | Stop motion clip |
+| `pause` | Pause continuous recording; clips still start on events (parking) |
+| `resume` | Resume continuous recording |
 | `sign-status` | Provenance signing state + device key fingerprint |
 | `export-pubkey` | Ed25519 public key (hex) for `rverify -k` |
 | `timelapse-status` | Timelapse state, current file, frame and byte counts |
@@ -437,6 +439,8 @@ capture time. RHD's `status` reports `exif_timestamp` and
 | Command | Description |
 |---------|-------------|
 | `status` | Last record: `gps` (receiver talking), `fix`, `utc`, `lat`, `lon`, `alt`, `speed_kn`, `course`, `sats`, `hdop`, `accel` [x,y,z] and `accel_dev` in g, `event` (impact clip held) |
+| `set-impact-g <g>` | Impact threshold, live (the ignition script lowers it while parked) |
+| `event` | Manual event: handled like an impact (clip, `%event%`, flagged record) |
 | `set-speed-unit <kmh\|mph>` | OSD speed unit, applied from the next epoch; written to raptor.conf by `config save` |
 
 ---
