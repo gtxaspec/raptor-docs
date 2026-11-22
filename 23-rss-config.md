@@ -590,13 +590,15 @@ Media recording to SD card for RMR.
 |-----|------|---------|-------------|
 | `enabled` | bool | `false` | Enable recording |
 | `mode` | string | `continuous` | Mode: `continuous`, `motion`, `both` |
-| `stream` | int | `0` | Stream index (0=main, 1=sub, 2-5 for multi-sensor) |
+| `stream` | int | `0` | Stream index (0=main, 1=sub, 2-5 for multi-sensor); used when `streams` is unset |
+| `streams` | string | unset | Record several video rings at once, comma-separated ring names with an optional file tag: `main, s1_main:R` records the front camera and an RCD rear camera together. At most 3. The first stream is untagged and keeps the plain file names; every other one writes the same names plus `_<tag>` (`16-59-00_R.mp4`), in segments and clips; without a tag it takes the ring name up to the first `_` (`s1_main` -> `s1`). Tags are letters, digits, `_` and `-`. Bad or duplicate entries are skipped with a warning. Unset = `stream` alone, exactly as before |
 | `audio` | bool | `true` | Include audio |
 | `segment_minutes` | int | `5` | Segment rotation interval (minutes). Segments open on wall-clock boundaries (the :00 the OSD shows): the first after start is short, an IDR is requested at the first frame past each boundary so the split lands within a frame (a pre-boundary request restarts the GOP and lands the key early, offsetting every split by a constant GOP phase), and a 5s floor guards backward clock steps |
 | `segment_seconds` | int | `0` | Nonzero overrides `segment_minutes` with a seconds-granularity interval (debugging and test harnesses) |
 | `storage_path` | string | `/mnt/mmcblk0p1/raptor` | Recording path. Auto-created when it resolves to mounted media (SD/NFS/SMB — any filesystem other than `/`); never auto-created on the root filesystem, so an absent SD card cannot spill recordings onto flash. While no destination is writable RMR stands by detached from the rings (logging `waiting for storage` once a minute) so an absent card costs the encoder nothing, then reattaches and starts recording as soon as the media appears (hot-plug) |
-| `max_storage_mb` | int | `0` | Max storage (MB); 0=unlimited |
+| `max_storage_mb` | int | `0` | Max storage (MB); 0=unlimited. Covers every stream's files: cleanup deletes the oldest day directory, so a front/rear pair goes together |
 | `prebuffer_sec` | int | `5` | Pre-event footage buffer (0-5 seconds) |
+| `prebuffer_max_mb` | int | `16` | Ceiling (1-64 MB) for each stream's video pre-buffer. The buffer is sized from the stream's observed byte rate (`(prebuffer_sec + 1) x bytes/s x 1.25`, at least 1 MB) and only grows to this; lower it on small boards, at the cost of a shorter pre-roll for streams above it. Not allocated in `continuous` mode |
 | `clip_length_sec` | int | `60` | Motion clip max duration before rotation |
 | `clip_max_mb` | int | `100` | Max total clip storage (MB) |
 | `sei_timecode` | bool | `true` (sample conf ships `false`) | Embed a MISB ST 0604 UTC timecode SEI in every recorded frame (H.264/H.265; skipped for MJPEG or when the ring has no UTC mapping) |

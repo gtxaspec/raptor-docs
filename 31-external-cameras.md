@@ -179,8 +179,9 @@ signature chain, the shared GPS records and audio, and SEI timecodes
 from the rear ring's UTC mapping. A clip event opens both. Both share
 the quota, so cleanup removes a pair together. The rear is optional at
 run time: with the camera unplugged or RCD stopped the front records
-on undisturbed, the rear track detaches after 2 s and closes its file
-at the next boundary, and it starts writing again when frames return.
+on undisturbed, the rear track goes idle after 2 s and closes its file
+at the next boundary, and it starts writing again (from the next
+keyframe) when frames return.
 `raptorctl rmr status` lists both under `tracks`. Each stream's
 pre-buffer (`mode = both`/`motion`) is sized from its own byte rate:
 ~14 MB for a 16 Mbit/s rear at `prebuffer_sec = 5`; `prebuffer_max_mb`

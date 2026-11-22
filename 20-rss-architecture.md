@@ -535,7 +535,36 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Audio codecs**: All RAD codecs — PCMU, PCMA, L16 (PCM fourcc),
   AAC-LC (mp4a + esds), Opus (Opus + dOps). Codec auto-detected from
   the audio ring header.
-- **Inputs**: Main video ring (or sub), audio ring.
+- **Inputs**: One to three video rings (`[recording] streams`; default
+  the single `stream` index, main), the audio ring, the telematics ring.
+- **Multiple streams**: each video ring is a track with its own files,
+  pre-buffer, signature chains and stats; a dashcam records its front
+  camera (`main`) and rear camera (`s1_main` from RCD) with
+  `streams = main, s1_main:R`. The first track's files keep the plain
+  names; every other track writes the same name plus `_<tag>`
+  (`16-59-00.mp4` + `16-59-00_R.mp4`), the same in `clips/`. Tracks
+  share one storage tree, quota and cleanup, so a pair is deleted
+  together. Segments of all tracks split at the same wall-clock
+  boundaries, each at its own first keyframe after it (each track asks
+  its own ring for an IDR); the first track to open a file in a period
+  names it and the others reuse that name, so a pair's names match
+  even when the rear's key lands a second later. A track reopening in
+  the same period (pause/resume) never reuses its own name. Events
+  (`start`/`stop`, `pause`/`resume`, `enable`/`disable`) act on all
+  tracks; each opens its clip with its own pre-roll. Audio is read once
+  and written into every open file with per-file DTS steering; GPS
+  records go into every open file; SEI timecodes come from each
+  track's own ring UTC mapping. The timelapse samples the first track
+  only. The loop reads at most a burst of frames per track per pass
+  and waits at most 10 ms when no track has a frame, so a missing or
+  silent ring (rear camera unplugged, RCD not running) never delays
+  the others: a missing ring is retried every 200 ms; a ring with no
+  frame for 2 s is reopened if its producer replaced it (new inode or
+  incarnation), otherwise it stays open as idle and the track's files
+  close at the next segment boundary or clip cap. When frames return
+  the track waits for a keyframe (requesting one). The
+  first track is required at startup (30 s wait, as before); the
+  others attach when their producers appear.
 - **Muxer**: Own lightweight fMP4 muxer — zero external dependencies. No
   libavformat required. The muxer is stateless per-segment; on rotation
   it closes the current file and opens a new one without touching the
@@ -600,8 +629,14 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
 - **Pre-buffer**: Process-local circular buffer stores the last N seconds
   (configurable `prebuffer_sec`, max 5) of AVCC video frames and raw audio
   frames. When motion triggers, the pre-buffer is replayed into the clip
-  so footage starts before the event. The pre-buffer is sized from bitrate
-  and FPS (~2MB typical). A stream running above the configured bitrate
+  so footage starts before the event. Each track's pre-buffer gets its
+  slot count from its ring's frame rate and starts at 1 MB; after 3 s of
+  frames its data region is sized once from the observed byte rate
+  (`(prebuffer_sec + 1) x bytes/s x 1.25`, at least 1 MB) and may then
+  double up to `prebuffer_max_mb` (default 16 MB per track) to keep the
+  window. 8 Mbit/s with the default 5 s pre-roll comes to ~7.2 MB,
+  16 Mbit/s to ~14.3 MB. No pre-buffer is allocated in `continuous`
+  mode. A stream running above the configured bitrate
   wraps the data region before the slot ring fills; every write retires
   the frames whose bytes it overlaps, so the replayed pre-roll is shorter
   than `prebuffer_sec` rather than corrupt. Audio replay is aligned to video duration by

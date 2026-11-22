@@ -260,6 +260,16 @@ requests, loss detection, reconnect. Protocol parsing and the clock
 mapper have unit tests in `tests/test_ethcam.c`. Details:
 [31 - External Cameras](31-external-cameras.md) §5.
 
+`tests/test-rmr-multi.sh` runs RMR on the mock RVD's `main` and a fake
+module's `s1_main` at once (`streams = main, s1_main:R`, mode both,
+signed, SEI, GPS from an NMEA replay, audio): segment and clip files
+pair as `X.mp4` + `X_R.mp4` and verify with `rverify -t -g`, no frame
+is lost on either track, the front records on while the fake module
+is killed and the rear resumes when it returns, and a one-stream
+config keeps its `HH-MM-SS.mp4` names and status fields. Mutations
+that drop the file tag, skip rear frames or let a silent rear ring
+block the loop each fail it.
+
 `tests/test-rac.sh` exercises `rac beep` with no rad and no hardware:
 argument validation, then a real 1 kHz / 1 s beep published to the
 speaker ring, captured with `ringdump -d` and verified sample-exact --

@@ -423,7 +423,23 @@ Timelapse files are all-intra MP4s sampled from the recording stream
 timecodes and signature chain as any recording, so `rverify` works
 unchanged.
 
-`status` also reports `sign`, `sei_timecode`, and `timelapse` states. Verify signed
+`status` fields:
+
+| Field | Meaning |
+|-------|---------|
+| `recording`, `clip` | Continuous recording on; event clip wanted |
+| `mode` | `continuous`, `motion` or `both` |
+| `file`, `frames`, `dropped`, `bytes`, `frames_lost` | The first stream's current segment path, frames and bytes written to it, frames dropped (ring overflow waits for a keyframe), and source frames that never reached a file (`src_seq` gaps) |
+| `sign`, `sei_timecode`, `gps`, `timelapse` | Signing on, SEI timecodes on, telematics ring attached, timelapse on |
+| `io_pending_kb`, `io_peak_kb` | Writer-thread backlog now and at its peak |
+| `tracks` | One entry per recorded stream (`[recording] streams`), first stream first: `ring`, `tag` (file suffix, empty on the first), `active` (frames arriving; false while the ring is missing or silent for 2 s), `file`, `frames`, `dropped`, `bytes`, `frames_lost`, `clip` (open clip path, empty when none) |
+
+The top-level `file`/`frames`/`dropped`/`bytes`/`frames_lost` always
+describe the first stream, so one-stream tools read them unchanged.
+`start`/`stop`, `pause`/`resume` and `enable`/`disable` act on every
+stream at once.
+
+Verify signed
 recordings with `rverify -k <pubkey> file.mp4` (`-t` summarizes the
 embedded ST 0604 timecodes, `-T` dumps every frame's UTC).
 
