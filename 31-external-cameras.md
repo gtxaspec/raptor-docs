@@ -236,7 +236,7 @@ Novatek SDKs. "Stock" means the dashcam's own firmware.
 | 9023 power off | 0 | Status 1, but the module has no power latch: it stops responding until power-cycled. Never send it |
 | 9025 version | 0 | String `2019-12-12-Ver1.00` when the request names `.12`, `...Ver1.02` for `.13` (the module answers per receiver path) |
 | 9026 IP reset | 0 | Status 1, no lasting effect (§4.5) |
-| 9027 system info | 12 bytes `{PullModeEn=0, CloneDisplayPathEn=1, 0}` | Status 76 (`12 | type<<4`, type 4 = NT96562). Without CloneDisplayPathEn the display stream stays silent |
+| 9027 system info | `par` = encoder buffer in seconds for both streams (0 = default 3); 12 bytes `{PullModeEn=0, CloneDisplayPathEn=1, 0}` | Status 76 (`12 | type<<4`, type 4 = NT96562). Without CloneDisplayPathEn the display stream stays silent |
 | 9032 codec | 12 bytes `{VCodec 0=H.264 1=H.265, 4, 0}` | Value 12 = accepted |
 | 9034 audio capture | 1 | Status 1, but no audio is ever sent (§4.4) |
 
@@ -367,6 +367,27 @@ The size itself is not taken from settings: every boot the firmware picks
 the size preset from a board strap (2560x1440 or 1920x1080) and sets the
 sensor pipeline size to match, which is why 9015's Size does nothing. The
 display stream is entry 18 (640x360, GOP 1800: one keyframe a minute).
+
+### 4.9 Full sensor: 2592x1944 (4:3)
+
+The IMX675 reads 2592x1944 in every mode; stock crops it to 2560x1440. The
+full frame was brought up on the USB529Pro 860 module (more vertical view),
+and it sits at this module's limits, so the details matter:
+
+| Change | Why |
+|---|---|
+| Size entry 7: 2592x1944, image ratio 4 (4:3); pipeline user size 2592x1944 | the frame itself |
+| Main buffer pool block 0x570000, **4 blocks** (stock 5) | 5 do not fit: the encoder allocation fails, 1.75 MB short |
+| Display: clone entry 640x480 (stock 640x360), its GOP back to 1800, its encoder buffer 3 s and no longer set by 9027 | a 4:3 preview without distortion; the stock GOP of 15 overruns the preview send queue |
+| Burnt-in stamp disabled (both enable paths go to `MovieStamp_Disable`) | at 2592 wide the module stamps "AUTOVUE 2K 30fps <date> V1"; disabling it also frees ~2.2 MB |
+| Rate 2048000 bytes/s (16 Mbit/s, as stock) | at 22 Mbit/s the module's own send task falls behind, its queue overlaps and it crashes |
+| 9027 `par=2` (rcd `enc_buf_sec = 2`) | with the default 3 s the encoder does not fit |
+| No forced keyframes (rcd `keyframe_requests = false`) | a 9016 I frame makes the 4-buffer pipeline drop ~11 frames; it sends one every second anyway |
+
+Result: 2592x1944 H.265 at ~16-18 Mbit/s, 640x480 preview, 0 lost frames
+across segment boundaries, recorded as `_R` files next to the front. The
+module's UART console (FreeRTOS, 115200 8N1) prints every allocation failure
+and queue overflow, and was how each limit above was found.
 
 ### 4.7 Pitfalls met on the way
 
