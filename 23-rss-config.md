@@ -602,6 +602,8 @@ Media recording to SD card for RMR.
 | `sei_timecode` | bool | `true` (sample conf ships `false`) | Embed a MISB ST 0604 UTC timecode SEI in every recorded frame (H.264/H.265; skipped for MJPEG or when the ring has no UTC mapping) |
 | `sign` | bool | `true` (sample conf ships `false`) | Sign recordings with an Ed25519 hash chain (uuid boxes; verify with `rverify`) |
 | `sign_key` | string | `/etc/raptor/sign_ed25519.key` | Signing key seed. Generated on first use; public key exported to `<sign_key>.pub` |
+| `sync_interval_ms` | int | `1000` | `fdatasync` the open segment and clip (with their GPS index) this often; a power cut loses at most about this much. `0` syncs only at close |
+| `write_buffer_kb` | int | `4096` | Recording I/O runs on a writer thread behind this much buffer, so a stalled card or share delays writes instead of dropping frames |
 | `gps` | bool | `true` | Embed RTD's `telematics` records (GPS, g-sensor) as indexed dashcam GPS boxes, readable by `exiftool -ee` and GPX converters; `rverify -g` lists them with their signature verdict. No effect without RTD |
 
 **Provenance signing:** every segment and clip carries a chain of

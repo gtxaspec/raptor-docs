@@ -617,6 +617,15 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   duration; if motion continues, a new clip is opened without pre-buffer.
 - **Testing**: `raptorctl test-motion [seconds]` sends start/stop directly
   to RMR, bypassing RMD cooldown. Default 10 seconds.
+- **Writer thread**: all file I/O (writes, the GPS index, `fdatasync`,
+  close) queues in order behind a preallocated byte ring
+  (`write_buffer_kb`) and runs on one thread, so a storage stall cannot
+  block the ring reader. Every `sync_interval_ms` the open segment and
+  clip get their GPS index and an `fdatasync`; a clip syncs as soon as
+  its pre-roll is written. `frames_lost` in `rmr status` counts frames
+  the encoder produced that never reached a file (gaps in the ring's
+  `src_seq`). Measured on the NT98529: no gap across segment
+  boundaries, 0.3-0.9 s lost per power cut on FAT32, ext4 and F2FS.
 - **GPS records** (`[recording] gps`, default on): RMR reads RTD's
   `telematics` ring and writes each record as a top-level 256-byte
   `free` box in the Novatek dashcam layout (`freeGPS `: UTC time,
@@ -941,9 +950,10 @@ These daemons control hardware peripherals and do not process frame data.
   change: `%speed%` `%unit%` `%lat%` `%lon%` `%alt%` `%heading%`
   `%sats%` `%gps%` `%gx%` `%gy%` `%gz%` `%g%` `%event%`. The speed unit
   is read every epoch, so `set-speed-unit` applies live.
-- **Impacts**: the resting vector follows a ~2 s low-pass, so mounting
-  angle and slopes do not count; a deviation beyond `impact_g` (after
-  a 2 s warm-up) flags the record, starts an RMR clip (`start`) held
+- **Impacts**: the DA221 is set to +-16 g (it powers up at +-2 g). The
+  resting vector follows a ~2 s low-pass, so mounting angle and slopes
+  do not count; a deviation beyond `impact_g` on two consecutive
+  samples (a lone sample is a corrupted read) after a 2 s warm-up flags the record, starts an RMR clip (`start`) held
   `impact_clip_sec` past the last impact, and shows `%event%` = SOS.
 - **Testing without a fix**: `gps_replay` plays an NMEA log one epoch
   per second, looping, in place of the receiver.
