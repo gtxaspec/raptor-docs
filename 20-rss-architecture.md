@@ -633,7 +633,7 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   slot count from its ring's frame rate and starts at 1 MB; after 3 s of
   frames its data region is sized once from the observed byte rate
   (`(prebuffer_sec + 1) x bytes/s x 1.25`, at least 1 MB) and may then
-  double up to `prebuffer_max_mb` (default 16 MB per track) to keep the
+  double up to `prebuffer_max_mb` (default 10 MB per track) to keep the
   window. 8 Mbit/s with the default 5 s pre-roll comes to ~7.2 MB,
   16 Mbit/s to ~14.3 MB. No pre-buffer is allocated in `continuous`
   mode. A stream running above the configured bitrate
