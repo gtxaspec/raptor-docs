@@ -991,6 +991,17 @@ typedef struct rss_hal_ops {
      * after consuming the data.
      *
      * frame: output; populated by the HAL. Caller must not free.
+     *
+     * Returns:
+     *   RSS_OK          a frame; release it with enc_release_frame().
+     *   -EAGAIN         the encoder delivered nothing (empty stream).
+     *                   Sustained after a ready poll, the channel is
+     *                   bound to a source that never produces.
+     *   RSS_ERR_SKIPPED a frame was produced and dropped by the HAL's
+     *                   own rate control (old-SDK JPEG fps divider, which
+     *                   the SDK does not apply to JPEG). Routine; nothing
+     *                   to release.
+     *   other negative  the SDK call failed.
      */
     int (*enc_get_frame)(void *ctx, int chn, rss_frame_t *frame);
 
@@ -1651,6 +1662,8 @@ static inline int rss_hal_init_single(const rss_hal_ops_t *ops, void *ctx,
 #define RSS_ERR_IO      (-EIO)          /* SDK call failed */
 #define RSS_ERR_BUSY    (-EBUSY)        /* resource in use */
 #define RSS_ERR_NOENT   (-ENOENT)       /* resource not found */
+#define RSS_ERR_SKIPPED (-ECANCELED)    /* not a failure: HAL rate control
+                                         * consumed the frame */
 
 #ifdef __cplusplus
 }
