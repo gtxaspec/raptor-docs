@@ -447,6 +447,7 @@ cd tests && make test
 # Sibling repo tests
 cd raptor-ipc/tests && make test      # IPC tests (29 tests)
 cd raptor-common/tests && make test   # common tests (86 tests)
+cd raptor-hal/tests && make test      # HAL tests (8 tests)
 ```
 
 **Fuzz targets (requires clang):** these cover the parsers that read

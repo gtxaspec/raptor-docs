@@ -44,7 +44,19 @@ cd raptor-common/tests && make test
 cd raptor-ipc/tests && make test
 ```
 
-### 1.3 raptor (287 tests, 23 suites)
+### 1.3 raptor-hal (8 tests, 1 suite)
+
+| Suite | File | Tests | Coverage |
+|-------|------|------:|----------|
+| tune | test_tune.c | 8 | ISP tuning kept across a running-mode switch: last value per key replayed once, replay in key order (enables before strengths, WB before its coefficients), whole WB and AWB-coefficient values, struct keys not recorded as ints, failures counted without stopping the replay (unsupported not counted), per-sensor replay, mode-change tracking from day |
+
+The rest of raptor-hal wraps libimp and is exercised on hardware.
+
+```
+cd raptor-hal/tests && make test
+```
+
+### 1.4 raptor (287 tests, 23 suites)
 
 | Suite | File | Tests | Coverage |
 |-------|------|------:|----------|
@@ -77,7 +89,7 @@ cd raptor-ipc/tests && make test
 cd raptor/tests && make test
 ```
 
-### 1.4 compy (150 tests, 27 suites)
+### 1.5 compy (150 tests, 27 suites)
 
 Compy is the RTSP/RTP/WebRTC C library used by RSD and RWD. Tests build
 with CMake and run via `ctest`.
