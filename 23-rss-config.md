@@ -206,6 +206,17 @@ ISP image tuning for RVD. For multi-sensor, use `[sensor1_image]`.
 | `hflip` | int | `0` | Horizontal flip (0 or 1) |
 | `vflip` | int | `0` | Vertical flip (0 or 1) |
 
+A day/night switch (`set-running-mode`, normally from RIC) makes the
+vendor driver reload the tuning bin's block for the new mode, dropping
+runtime settings (T41/T32: anti-flicker; T31: max gains, backlight
+comp, highlight depress). raptor-hal records every tuning value set
+through it and replays them after the switch, so the values above (and
+`[sensor] antiflicker`) hold in both modes, as at boot.
+
+T32/T33 switch to night only when the sensor's `-night.bin` sits next
+to the day bin in `/etc/sensor`. Without it the ISP stays in day,
+`set-running-mode` answers an error, and RIC logs it.
+
 ---
 
 ### `[jpeg]`

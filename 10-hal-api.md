@@ -1162,6 +1162,18 @@ typedef struct rss_hal_ops {
      *
      * Dispatches to IMP_ISP_Tuning_SetISPRunningMode().
      * Gen1/Gen2: scalar; Gen3: IMPVI_NUM + pointer.
+     *
+     * Success is the mode the ISP reports afterwards, not the SDK's
+     * result (T41 returns -1 from a switch that took): RSS_ERR_IO when
+     * the ISP stayed in the old mode (T32/T33 with no night bin).
+     *
+     * A switch changes the mode and nothing else: the vendor driver
+     * reloads the tuning bin's block for the new mode, so the HAL
+     * replays every tuning value set through it (brightness through
+     * defog, anti-flicker, WB, AWB coefficients; per sensor via the _n
+     * ops), after waiting for frames on SoCs that apply the reload
+     * later (T31). Flip, sensor fps and pipeline controls are not
+     * replayed.
      */
     int (*isp_set_running_mode)(void *ctx, rss_isp_mode_t mode);
 
