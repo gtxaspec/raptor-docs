@@ -1213,6 +1213,17 @@ typedef struct rss_hal_ops {
     int (*isp_get_exposure)(void *ctx, rss_exposure_t *exposure);
 
     /*
+     * isp_get_direct_sensors -- how many sensors' main channels the ISP
+     * driver feeds straight to the encoder (IVDC).
+     *
+     * T32/T33: tx-isp's direct_mode module parameter, read from sysfs.
+     * Other SoCs: -ENOTSUP (T23 uses direct_mode=2 on a single sensor,
+     * so the value is not a count there). An unreadable parameter
+     * returns -EIO.
+     */
+    int (*isp_get_direct_sensors)(void *ctx, int *count);
+
+    /*
      * Optional ISP tuning functions.
      *
      * These are present on a subset of SoCs. When called on unsupported

@@ -53,10 +53,19 @@ ring buffers. Exactly one instance of each runs per camera.
   then `data = max_frame * slot_count`, clamped to [256KB..8MB].
   This avoids over-allocating on 32MB devices and under-allocating on
   high-bitrate streams. Manual override is still supported.
-- **IVDC passthrough**: When `ivdc = true` in `[stream0]`, RVD passes
-  the flag to the HAL encoder config. IVDC (ISP-VPU Direct Connect)
-  replaces full frame buffers with line buffers, significantly reducing
-  rmem usage on T23/T32/T41.
+- **IVDC**: IVDC (ISP-VPU Direct Connect) feeds a main channel straight
+  from the ISP to the encoder, replacing full frame buffers with line
+  buffers and significantly reducing rmem. On T32/T33 the ISP driver
+  decides: RVD reads tx-isp's `direct_mode` (the number of sensors whose
+  main is direct) through `isp_get_direct_sensors` and sets each main's
+  IVDC to match, warning when `ivdc` in the config disagrees, because
+  libimp cannot run against the driver either way. Elsewhere `ivdc = true`
+  in `[stream0]` is passed through as configured. An IVDC main uses the
+  ISP OSD, keeps its snapshot channel in the IVDC group (created IVDC
+  too, as in the vendor sample), and the sensor's other channels get a
+  third frame buffer when `nr_vbs` is unset: they encode behind the IVDC
+  main and return buffers late, which with two cost a T32 sub stream a
+  third of its frames.
 - **Stream0 resolution defaults**: When `[stream0]` width/height are
   omitted, RVD defaults to the sensor's native resolution rather than
   hardcoding 1920x1080. This prevents OOM on lower-resolution sensors
@@ -2054,10 +2063,15 @@ all daemons that map the same ring).
   data regions from encoder bitrate. For a 720p@25fps stream at 1Mbps,
   auto-sizing allocates ~640KB vs the old fixed 4MB — an 84% reduction.
   This is critical for 32MB devices where every KB counts.
-- **IVDC (ISP-VPU Direct Connect)**: On T23/T32/T41, setting `ivdc = true`
-  in `[stream0]` replaces full frame buffers in rmem with line buffers,
-  reducing encoder DMA memory by ~60%. Requires kernel module parameter
-  `direct_mode=1 ivdc_mem_line=<lines>` in `/etc/modules.d/20-isp`.
+- **IVDC (ISP-VPU Direct Connect)**: replaces full frame buffers in rmem
+  with line buffers, reducing encoder DMA memory by ~60%. Requires the
+  kernel module parameters `direct_mode=1 ivdc_mem_line=<lines>` (T32/T33
+  also `ivdc_threshold_line`) in `/etc/modules.d/20-isp`. On T32/T33 RVD
+  follows `direct_mode` by itself; on T23/T41 set `ivdc = true` in
+  `[stream0]` to match. Example, T32LQ + SC4336P at 2560x1440: memory
+  mode needs ~30 MB rmem for three main buffers (two run at half rate);
+  direct mode (`ivdc_mem_line=720 ivdc_threshold_line=540`) runs both
+  streams at 30 fps in 19 MB.
 - **ROD glyph cache**: Pre-render digits 0-9 and common punctuation at
   startup. Reuse bitmaps for timestamp updates (only re-render changed
   digits).
