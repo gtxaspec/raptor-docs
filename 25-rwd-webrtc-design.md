@@ -246,17 +246,42 @@ WebTorrent tracker signaling. Built with `WEBTORRENT=1`.
 
 1. Camera connects outbound (TLS WebSocket) to a public WebTorrent
    tracker (`wss://tracker.openwebtorrent.com`) and announces a share
-   room identified by `base64(SHA-256("raptor:" + share_key))`.
+   room whose info_hash is `SHA-256("raptor:" + share_key)` cut to 20
+   bytes (see *Tracker wire form*).
 2. Camera discovers its public IP:port via STUN binding request to
    a public STUN server, adds the result as a server-reflexive (srflx)
    ICE candidate in SDP answers.
 3. Viewer opens `share.html#key=<share_key>` in a browser. The page
    connects to the same tracker, computes the same info_hash, and sends
-   an SDP offer through the tracker.
-4. Camera receives the offer, creates a client (same as WHIP), generates
-   an SDP answer, and sends it back through the tracker.
+   an SDP offer through the tracker, signed with the share key.
+4. Camera checks the signature, creates a client (same as WHIP),
+   generates an SDP answer, signs it, and sends it back through the
+   tracker. The viewer drops an answer whose signature is wrong.
 5. ICE connectivity checks punch through NAT. Direct P2P connection
    established. DTLS handshake → SRTP → video+audio flows directly.
+
+### Tracker wire form
+
+Public trackers follow the reference `bittorrent-tracker`:
+
+- `info_hash`, `peer_id`, `to_peer_id` and `offer_id` must be 20-byte
+  binary strings (one JSON character per byte, U+0000 to U+00FF).
+  tracker.openwebtorrent.com refuses anything else since 2026-11-04
+  ("info_hash field is missing or wrong"); tracker.webtorrent.dev drops
+  an offer whose `offer_id` is not 20 bytes.
+- The camera's peer_id is `-RP0001-` plus 12 random characters, the
+  viewer's `-RV0001-` plus 12; offer_ids are 20 random bytes.
+- Only `type` and `sdp` of an offer or answer are relayed; any other
+  field is stripped. So raptor's own data rides in the SDP as
+  attribute lines:
+  - `a=x-raptor-stream:<n>`: the stream the viewer wants (offer only).
+  - `a=x-raptor-auth:<hex>`: HMAC-SHA256 keyed with the share key over
+    `"offer\n"` (or `"answer\n"`) + hex(offer_id) + `"\n"` + the SDP
+    without this line. The tracker is a third party and knowing the
+    info_hash is not knowing the key, so the camera refuses an offer
+    without a valid tag (and a replayed offer_id), and the viewer an
+    answer without one. The viewer removes the line before handing the
+    answer to the browser.
 
 ### SDP size limit
 
@@ -292,7 +317,7 @@ stun_server = stun.l.google.com
 stun_port = 19302
 tls_verify = true               # verify tracker TLS cert
 viewer_url = https://viewer.thingino.com/share.html
-share_key =                     # min 4 chars, auto-generated if omitted
+share_key =                     # min 8 chars, auto-generated if omitted
 ```
 
 ---
