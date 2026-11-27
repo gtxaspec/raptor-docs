@@ -393,16 +393,24 @@ Note: daemon binaries that link the HAL (rvd, rad) will fail at
 link time without the Ingenic SDK libs. Compilation succeeding
 (all `.c` files compile clean) is sufficient to verify your changes.
 
-### ASAN Build (x86, mock HAL)
+### ASAN Build (x86 or arm64, mock HAL)
 
 ```sh
 ./build-asan.sh        # AddressSanitizer + UBSan
 ./build-asan.sh tsan   # ThreadSanitizer
 ```
 
-Builds all 14 daemons + tools for x86 with a mock HAL (`tests/mock_hal.c`).
-Output goes to `asan-out/`. RVD and RAD use the mock HAL; all other
-daemons build natively (no HAL dependency).
+Builds all 14 daemons + tools for the host (x86_64 or arm64) with a mock
+HAL (`tests/mock_hal.c`). Output goes to `asan-out/`. RVD and RAD use the
+mock HAL; all other daemons build natively (no HAL dependency). On
+non-x86 hosts libhelix-aac takes its generic C path and faac's SSE file
+is left out.
+
+A test host needs `/var/run/rss` to exist and be writable by the user
+running the suites (the daemons put their control sockets and pid files
+there); without it every daemon exits with "daemonize failed". `/run` is
+a tmpfs, so create it at boot, e.g. `/etc/tmpfiles.d/raptor-tests.conf`
+with `d /run/rss 1777 root root -`.
 
 ### Running Tests
 
@@ -429,11 +437,23 @@ cd tests && make test
 ./tests/test-integration.sh
 
 # RIC behavior suite (stub rvd + fake sysfs GPIO in a user
-# namespace; RIC_SUITE_STRICT=1 turns skips into failures)
+# namespace; RIC_SUITE_STRICT=1 turns skips into failures). Skips
+# where a tmpfs over /sys cannot be written, as in an LXC container
+# whose AppArmor profile denies writes under /sys
 ./tests/test-ric.sh
 
 # RAC beep suite (no rad needed; ring capture verified sample-exact)
 ./tests/test-rac.sh
+
+# Security suites against the real daemons, each in a private
+# user/net/mount namespace: rsd (stalled players, alias gate, RTSPS
+# stalls and fail-closed TLS, request framing, client slots, SETUP
+# failure), rwd (DTLS pinning, CORS, WebTorrent wire form and offer
+# signing, stalled signaling), rhd (TLS handshakes and writes, idle
+# connections and slot eviction)
+./tests/test-rsd.sh
+./tests/test-rwd.sh
+./tests/test-rhd.sh
 
 # IPv6-first / IPv4-fallback proof for every listening daemon
 ./tests/test-net-fallback.sh

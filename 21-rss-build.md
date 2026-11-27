@@ -1,7 +1,7 @@
 # Raptor Streaming System -- Build System
 
 Makefile-based build with per-directory Makefiles, cross-compilation via
-Buildroot toolchain, ASAN debug build for x86, and Buildroot package
+Buildroot toolchain, ASAN debug build for x86 or arm64 hosts, and Buildroot package
 integration.
 
 ---
@@ -15,7 +15,7 @@ raptor/                  # main repo: all daemons and tools
 ├── Makefile             # top-level build (orchestrates sub-makes)
 ├── build.sh             # convenience wrapper: ./build.sh t31 <br_output>
 ├── build-standalone.sh  # standalone build (downloads toolchain + all deps)
-├── build-asan.sh        # x86 ASAN build (mock HAL, native gcc)
+├── build-asan.sh        # host ASAN build, x86 or arm64 (mock HAL, native gcc)
 ├── config/
 │   └── raptor.conf      # default configuration file
 ├── run.sh               # NFS launch script for on-device testing
@@ -400,10 +400,11 @@ endef
 
 ---
 
-## 4. ASAN Debug Build (x86)
+## 4. ASAN Debug Build (x86 or arm64)
 
-`build-asan.sh` builds all daemons natively on x86 with AddressSanitizer
-and UndefinedBehaviorSanitizer. RVD and RAD use a mock HAL
+`build-asan.sh` builds all daemons natively on the host (x86_64 or arm64)
+with AddressSanitizer and UndefinedBehaviorSanitizer. On non-x86 hosts
+libhelix-aac takes its generic C path and faac's SSE file is left out. RVD and RAD use a mock HAL
 (`tests/mock_hal.c`) that stubs all IMP SDK calls. All other daemons
 build without HAL.
 

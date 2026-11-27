@@ -294,6 +294,34 @@ helpers). The payload checks would have passed on a lossy capture
 padded with silence; sample-exact totals are what made the missing
 tail visible.
 
+### 2.8 Network Daemon Security Suites
+
+`tests/test-rsd.sh`, `tests/test-rwd.sh` and `tests/test-rhd.sh` run the
+real daemons against hostile clients, each in a private user, net and
+mount namespace (own ports, `/dev/shm` and `/run`), and every leg ends by
+checking for a sanitizer report. They pin the fixes from a security
+audit of the network daemons; each leg fails on the code before its fix.
+`test-all` runs all three.
+
+- **rsd**: a TCP player that stops reading must not stall others; the
+  endpoint alias gate in SETUP and PLAY (skipping DESCRIBE, track
+  controls, a SETUP switching streams); credentials kept out of
+  RTP-Info; RTSPS with silent and dribbling handshakes, half-sent
+  records and records held back by the TLS library, and `tls = true`
+  without a usable certificate refusing to start; requests after
+  interleaved frames and pipelined in one segment; silent connections
+  against the client slots (pre-auth allowance and eviction); a refused
+  SETUP leaving the transports intact.
+- **rwd**: DTLS peer certificates pinned to the offer fingerprint; CORS
+  only with credentials; WebTorrent in the trackers' wire form (20-byte
+  identifiers, offer and answer signed in the SDP) against a fake
+  tracker that, like the public ones, relays only type and sdp;
+  signaling that stalls without stopping media.
+- **rhd**: TLS handshakes and writes off the event loop (dribbled
+  ClientHello, stalled snapshot and stream clients), the TLS
+  read/write race on a streaming connection, and idle connections
+  against the client slots.
+
 ---
 
 ---

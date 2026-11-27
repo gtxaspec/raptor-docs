@@ -329,13 +329,15 @@ and RSD-555 (live555-based). Both backends read from this section.
 | `max_clients` | int | `8` | Max simultaneous clients (compile max 8) |
 | `username` | string | (empty) | Digest auth username (both required to enable) |
 | `password` | string | (empty) | Digest auth password |
-| `tls` | bool | `false` | Enable RTSPS (port defaults to 322) |
+| `tls` | bool | `false` | Enable RTSPS (port defaults to 322). With an unusable cert/key RSD refuses to start rather than serve plaintext |
 | `tls_cert` | string | `/etc/ssl/certs/uhttpd.crt` | TLS certificate path |
 | `tls_key` | string | `/etc/ssl/private/uhttpd.key` | TLS private key path |
 | `tls_cipher_preference` | string | `default` | `default` or `chacha20` (see below) |
 | `session_name` | string | `Raptor Live` | SDP session name (s=) |
 | `session_info` | string | (empty) | SDP session description (i=) |
 | `session_timeout` | int | `60` | Session timeout in seconds (min 10) |
+| `send_timeout` | int | `10` | Seconds a write to a client may take before the client is disconnected (1-300); a TCP player that stops reading is cut instead of holding its slot |
+| `preauth_timeout` | int | `10` | Seconds a new connection may go without one accepted request (credentials included) before it is dropped; when every slot is taken the oldest such connection makes way for a new one (1-300) |
 | `tcp_sndbuf` | int | `65536` | TCP send buffer bytes (lower=less latency) |
 | `rtcp_sr` | bool | `true` | Send RTCP Sender Reports every 5s, first ~1s after PLAY (RSD only). NVRs (ffmpeg/Frigate/go2rtc) use the SR NTP<->RTP mapping for A/V sync; disabling it lets audio/video drift apart in long recordings |
 | `backchannel` | bool | `false` | Two-way audio (ONVIF Profile T). Offers PCMU, PCMA, opus, AAC and L16 on one sendonly section; the client picks by sending, TCP interleaved or UDP. Decoded client audio lands in the `speaker` ring; rsd answers with RTCP receiver reports |
@@ -348,7 +350,8 @@ and RSD-555 (live555-based). Both backends read from this section.
 
 Custom URL aliases replace the default `/streamN` paths for each
 stream. Only the alias is accepted when set -- the default path is
-disabled. Aliases must match `[A-Za-z0-9_.-]+` and cannot shadow
+disabled, in DESCRIBE, SETUP and PLAY alike (SETUP and PLAY resolve the
+stream from the URI without its track control, e.g. `trackID=0`). Aliases must match `[A-Za-z0-9_.-]+` and cannot shadow
 reserved names (`main`, `sub`, `audio`, `backchannel`).
 
 | Key | Type | Default | Description |
@@ -387,7 +390,7 @@ HTTP server for snapshots and MJPEG streaming (RHD).
 |-----|------|---------|-------------|
 | `enabled` | bool | `true` | Enable HTTP server |
 | `port` | int | `8080` | HTTP listen port |
-| `max_clients` | int | `8` | Max simultaneous clients (compile max 8) |
+| `max_clients` | int | `8` | Max simultaneous clients (compile max 8). A connection that sends no request within 5 s is closed; when all are taken, the oldest such one (at least 1 s old) makes room for a new connection |
 | `username` | string | (empty) | Basic auth username (both required to enable) |
 | `password` | string | (empty) | Basic auth password |
 | `https` | bool | `false` | Enable HTTPS |

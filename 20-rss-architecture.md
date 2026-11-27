@@ -313,6 +313,11 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   exclusive endpoints configurable via `endpoint_main` and `endpoint_sub`
   in `[rtsp]` config — when set, only the custom paths are accepted and
   all defaults are disabled. Unknown endpoints return 404 Not Found.
+  The stream is resolved from the URI of every DESCRIBE, SETUP and PLAY
+  (SETUP and PLAY drop the last path component, the track control such
+  as `trackID=0`), so a client cannot skip DESCRIBE to reach a default
+  path behind an alias, and a SETUP naming a different stream than the
+  session's earlier one is refused with 404.
 - **Audio codecs over RTSP**: All RAD codecs are supported. SDP and RTP
   packetization are codec-aware: PCMU/PCMA use static payload types,
   AAC uses RFC 3640 (mpeg4-generic with AU header section), Opus uses
@@ -362,8 +367,15 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   so `tls = true` alone is sufficient when certs exist.
   Single-socket design — either plain RTSP or RTSPS, not both.
   All TLS code gated behind `#ifdef COMPY_HAS_TLS`. If `tls = true`
-  but cert/key fails to load, RSD warns and falls back to plain RTSP
-  on port 554.
+  but the cert/key cannot be loaded, RSD logs why and refuses to start
+  (nothing listens): a camera set up for RTSPS never serves plaintext
+  in its place.
+  TLS handshakes run on threads of their own (at most
+  `RSD_MAX_HANDSHAKES` = 8; when all are busy the oldest is cut), each
+  bounded as a whole by `RSD_TLS_HANDSHAKE_SEC` = 5. The event loop reads
+  an RTSPS client only when the whole next TLS record is queued on the
+  socket, so half a record cannot park it; a record left incomplete for
+  `RSD_TLS_RECORD_SEC` = 5 drops the client with a warning.
 - **Connection hardening**:
   - Idle timeout (`RSD_IDLE_TIMEOUT_SEC = 60`): clients that have not
     completed RTSP setup and are not actively streaming are disconnected
@@ -372,6 +384,22 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
     it without completing a request are disconnected (not reset).
   - Max clients (`RSD_MAX_CLIENTS = 8`): enforced under mutex lock to
     prevent race conditions on concurrent accepts.
+  - Pre-auth allowance (`[rtsp] preauth_timeout`, default 10 s): a
+    connection that has not had one request accepted (credentials
+    included, when configured) is closed after that. When a client finds
+    every slot taken, the oldest such connection makes way for it, with
+    a warning. Silent connections therefore cannot hold the slots.
+  - The event loop never waits on a client: it takes a connection's
+    write lock only with a trylock, so a TCP player that stops reading
+    stalls nobody else. Every write to a client has a deadline of
+    `[rtsp] send_timeout` seconds (default 10); a write that fails or
+    times out shuts the connection down, with a warning.
+  - Requests are parsed from the receive buffer, all of those that
+    arrived together, including after interleaved frames; an
+    unparseable request is answered 400 and the connection closed.
+  - A SETUP is validated before anything is torn down, so a refused one
+    leaves the session's existing transports intact.
+  - RTP-Info URLs never carry the `user:password@` of the request URI.
   - Ring header validation: division-by-zero guard on `slot_count` before
     computing frame buffer sizes.
 - **Early exit**: When `enabled = false` in `[rtsp]` config, RSD logs
@@ -490,7 +518,19 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   - `/` — simple HTML index page with links and embedded MJPEG preview
 - **HTTPS**: Supports `[http] https = true` with `cert`/`key` config
   options. Uses `rss_tls_init()` from raptor-common. Falls back to HTTP
-  on TLS init failure.
+  on TLS init failure. Each TLS handshake runs on a thread of its own,
+  bounded as a whole to 5 s (`RHD_TLS_HANDSHAKE_MS`), and the client joins
+  the event loop once it is done. A stream frame that a client cannot
+  take within 5 s (`RHD_STREAM_WRITE_MS`) drops it. A streaming client's
+  TLS connection belongs to its send thread: the event loop only watches
+  its socket for the peer leaving and never reads it through mbedTLS,
+  which is not safe for a read and a write at once.
+- **Connection limits**: a connection must finish its first request
+  within 5 s (`RHD_RECV_TIMEOUT_MS`). When all `max_clients` slots are
+  taken, the oldest connection that has not sent a request and is at
+  least 1 s old (`RHD_EVICT_MIN_AGE_MS`) is closed to make room, with a
+  warning; streams, parked snapshots and replies being sent are never
+  evicted.
 - **Authentication**: HTTP Basic auth via `[http] username` and
   `[http] password` config options (defaults: `admin`/`secret`).
 - **Network**: Dual-stack IPv6 (AF_INET6 with IPV6_V6ONLY=0), port 8080.
