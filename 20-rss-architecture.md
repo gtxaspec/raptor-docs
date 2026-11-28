@@ -517,8 +517,10 @@ sinks. Multiple consumers can attach to the same ring simultaneously.
   - `/audio` — HTTP audio streaming
   - `/` — simple HTML index page with links and embedded MJPEG preview
 - **HTTPS**: Supports `[http] https = true` with `cert`/`key` config
-  options. Uses `rss_tls_init()` from raptor-common. Falls back to HTTP
-  on TLS init failure. Each TLS handshake runs on a thread of its own,
+  options. Uses `rss_tls_init()` from raptor-common. If the cert/key
+  cannot be loaded (or rhd was built without TLS), rhd logs why and
+  exits with a failure status rather than serve HTTP on that port. Each
+  TLS handshake runs on a thread of its own,
   bounded as a whole to 5 s (`RHD_TLS_HANDSHAKE_MS`), and the client joins
   the event loop once it is done. A stream frame that a client cannot
   take within 5 s (`RHD_STREAM_WRITE_MS`) drops it. A streaming client's
